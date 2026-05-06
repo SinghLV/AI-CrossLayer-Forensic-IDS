@@ -15,13 +15,19 @@ Integrated a high-performance forensic layer using the **TShark CLI**. This allo
 *   **Historical AI Replay**: Score historical PCAP traffic through the AI pipeline to identify missed threats.
 *   **Flow Anomaly Detection**: Identifying suspicious TCP flag combinations and transmission patterns.
 
-### 3. Hybrid AI Architecture
-The "Brain" of the system uses a dual-model approach:
-*   **LSTM Autoencoder (Unsupervised)**: Trained on normal traffic patterns to identify "Zero-Day" anomalies based on reconstruction error.
-*   **Random Forest (Supervised)**: Provides rapid classification of known attack vectors (DDoS, Brute Force, Scans).
+### 3. Hybrid AI Engine (Unsupervised & Supervised)
+The "Brain" of the system uses a sophisticated dual-model approach:
+*   **LSTM Autoencoder (Deep Learning)**: Trained on normal traffic patterns to identify "Zero-Day" anomalies based on reconstruction error.
+*   **Random Forest (Classifier)**: Provides rapid classification of known attack vectors (DDoS, Brute Force, Scans) using an 84-dimensional feature vector.
 
-### 4. Explainable AI (XAI)
-Every detection is accompanied by a human-readable insight. The XAI engine translates complex 84-dimensional feature vectors into clear security hints (e.g., *"Suspiciously high entropy in packet payload detected"*).
+### 4. Knowledge Graph & Relationship Mapping (Neo4j)
+Integrates a graph-based visualizer to map relationships between IPs, MAC addresses, and protocols. This allows security analysts to see "islands" of communication and identify lateral movement within a network.
+
+### 5. Explainable AI (XAI) & Insights
+Every detection is accompanied by a human-readable insight. The XAI engine translates complex feature vectors into clear security hints, explaining *why* the AI flagged a specific event.
+
+### 6. SOC-Grade Reporting
+Includes an automated **PDF Report Generator** that compiles anomaly timelines, feature importance graphs, and protocol distributions into a professional security audit document.
 
 ---
 
@@ -29,6 +35,7 @@ Every detection is accompanied by a human-readable insight. The XAI engine trans
 *   **Core**: Python 3.9+
 *   **Traffic Engine**: Scapy & TShark
 *   **AI/ML**: PyTorch (LSTM), Scikit-learn (Random Forest)
+*   **Graph Engine**: Neo4j (Relationship Mapping)
 *   **Dashboard**: Streamlit (SOC-Grade UI)
 *   **Metrics**: Psutil & System-level Telemetry
 
@@ -61,7 +68,7 @@ The system provides a comprehensive set of metrics including:
 *   **Reconstruction Error Timeline**: Visualizing anomaly severity over time.
 *   **Protocol Distribution**: Real-time breakdown of network traffic.
 *   **System Health**: Monitoring CPU/RAM correlation with network spikes.
-*   **Forensic Reports**: Auto-generated PDF reports for security audits.
+*   **Knowledge Graph**: Dynamic visualization of network relationships.
 
 ---
 
