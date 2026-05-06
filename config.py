@@ -1,19 +1,19 @@
 """
-config.py
-=========
-Global configuration for the Intelligent Threat Detector.
-Used to control feature visibility for phased faculty presentations.
+Configuration settings for the X-IDS Presentation.
+Modify PROJECT_PHASE to control feature visibility during faculty demonstrations.
 """
 
-# --- Phased Presentation Levels ---
-# 1: Basic (Live Monitoring Only)
-# 2: AI Core (Live + System Metrics + Attack Analytics)
-# 3: XAI & Reports (Live + System + Analytics + Reports)
-# 4: Full (All tabs including Packet Forensics)
+# Current Project Phase (1 to 4)
+# Phase 1: Foundation (Dashboard & System Health)
+# Phase 2: Intelligent Detection (AI Anomaly & Reconstruction)
+# Phase 3: Forensic Deep-Dive (TShark Analysis & Top Talkers)
+# Phase 4: Full Suite (Explainable AI & Professional Reporting)
+PROJECT_PHASE = 4
 
-PROJECT_PHASE = 2  # Set this to 1, 2, 3, or 4 based on your presentation progress
-
-# --- Other Global Settings ---
-DEBUG_MODE = False
-DEFAULT_MAX_ROWS = 1000
-DEFAULT_REFRESH_RATE = 5
+# Feature Visibility Mapping
+PHASE_FEATURES = {
+    1: ["Overview Dashboard", "Real-time Packet Monitoring", "CPU/RAM/IRQ Metrics"],
+    2: ["LSTM Anomaly Detection", "Reconstruction Error Timeline", "Dynamic Thresholding"],
+    3: ["TShark Forensic Engine", "Protocol Distribution", "Network Relationship Graph"],
+    4: ["Explainable AI (XAI)", "PDF Audit Reports", "Forensic Replay Engine"]
+}

@@ -276,11 +276,11 @@ st.markdown('<p style="text-align:center;color:#6b7280">Network Traffic + CPU In
 df=load_df(max_rows)
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-# ── Tabs Configuration (Phased) ────────────────────────────────────────────────
+# ── Tabs Configuration (Phased Presentation) ──────────────────────────────────
 tab_map = {
-    1: ["🔴 Live Monitor"],
+    1: ["🔴 Live Monitor", "💻 System Metrics"],
     2: ["🔴 Live Monitor", "📊 Attack Analytics", "💻 System Metrics"],
-    3: ["🔴 Live Monitor", "📊 Attack Analytics", "💻 System Metrics", "📋 Reports"],
+    3: ["🔴 Live Monitor", "📊 Attack Analytics", "💻 System Metrics", "📡 Packet Forensics"],
     4: ["🔴 Live Monitor", "📊 Attack Analytics", "🕸️ Threat Graph", "💻 System Metrics", "📋 Reports", "📡 Packet Forensics"]
 }
 current_tabs = tab_map.get(PROJECT_PHASE, tab_map[4])
