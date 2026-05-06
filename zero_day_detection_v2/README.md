@@ -29,6 +29,21 @@ For the **Packet Forensics** tab to work, TShark must be installed on your syste
 
 ---
 
+## 🏛️ Phased Presentation Mode
+This system is designed for incremental faculty demonstrations. You can control which features are visible using the configuration file.
+
+**To switch phases:**
+1. Open `config.py`.
+2. Change `PROJECT_PHASE` to:
+   - `1`: Basic (Live Monitor only)
+   - `2`: Core AI (Adds Analytics & Metrics)
+   - `3`: Explainable (Adds Reports & XAI)
+   - `4`: Full Forensic (Unlocks TShark/Wireshark forensics)
+
+Check `academic_progress_phases.md` for the presentation script and strategy.
+
+---
+
 ## 🏃 Execution Guide
 
 ### 1. Training Phase
