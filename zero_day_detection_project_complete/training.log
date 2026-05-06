@@ -1,0 +1,16 @@
+2025-06-09 04:13:41,368 - INFO - Loading data from data/Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv
+2025-06-09 04:13:42,237 - INFO - Original DataFrame shape: (225745, 79)
+2025-06-09 04:13:43,087 - INFO - Final DataFrame shape after preprocessing: (225745, 79)
+2025-06-09 04:13:45,432 - INFO - Starting training on cuda
+2025-06-09 04:14:03,924 - INFO - Epoch 1/5, Loss: 0.059166
+2025-06-09 04:14:03,941 - INFO - Model and scaler saved. Best Loss: 0.059166
+2025-06-09 04:14:22,155 - INFO - Epoch 2/5, Loss: 0.006050
+2025-06-09 04:14:22,163 - INFO - Model and scaler saved. Best Loss: 0.006050
+2025-06-09 04:14:39,903 - INFO - Epoch 3/5, Loss: 0.003072
+2025-06-09 04:14:39,910 - INFO - Model and scaler saved. Best Loss: 0.003072
+2025-06-09 04:14:57,703 - INFO - Epoch 4/5, Loss: 0.002221
+2025-06-09 04:14:57,710 - INFO - Model and scaler saved. Best Loss: 0.002221
+2025-06-09 04:15:15,537 - INFO - Epoch 5/5, Loss: 0.001878
+2025-06-09 04:15:15,544 - INFO - Model and scaler saved. Best Loss: 0.001878
+2025-06-09 04:15:21,692 - INFO - Training complete. Anomaly threshold: 0.015038
+2025-06-09 04:15:21,702 - INFO - Training finished successfully
