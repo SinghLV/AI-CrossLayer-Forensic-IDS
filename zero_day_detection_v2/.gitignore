@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.env
+
+# Streamlit
+.streamlit/
+
+# Project Specific
+logs/*.log
+logs/*.html
+logs/*.json
+demo_data/
+*.pcap
+*.pcapng
+
+# OS
+.DS_Store
