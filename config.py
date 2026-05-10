@@ -8,9 +8,9 @@ Modify PROJECT_PHASE to control feature visibility during faculty demonstrations
 # Phase 2: Intelligent Detection (AI Anomaly & Reconstruction)
 # Phase 3: Forensic Deep-Dive (TShark Analysis & Top Talkers)
 # Phase 4: Full Suite (Explainable AI & Professional Reporting)
-PROJECT_PHASE = 4
+PROJECT_PHASE = 2
 
-# Feature Visibility Mapping
+# Feature Visibilit Mapping
 PHASE_FEATURES = {
     1: ["Overview Dashboard", "Real-time Packet Monitoring", "CPU/RAM/IRQ Metrics"],
     2: ["LSTM Anomaly Detection", "Reconstruction Error Timeline", "Dynamic Thresholding"],

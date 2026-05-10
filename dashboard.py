@@ -161,6 +161,28 @@ def get_sys_metrics():
         return cpu,ram
     except: return 0.0,0.0
 
+# ── Auto-Start Real-Time Engine ────────────────────────────────────────────────
+if "engine_started" not in st.session_state:
+    st.session_state.engine_started = True
+    st.session_state.current_engine_type = "SCAPY" if PROJECT_PHASE <= 2 else "TSHARK"
+    st.session_state.engine_thread = None
+    
+    try:
+        if st.session_state.current_engine_type == "SCAPY":
+            from realtime_detector import RealtimeDetector
+            engine = RealtimeDetector()
+            t = threading.Thread(target=engine.start, daemon=True)
+            t.start()
+            st.session_state.engine_thread = t
+        else:
+            from tshark_detector import TSharkRealtimeDetector
+            engine = TSharkRealtimeDetector()
+            t = threading.Thread(target=engine.start, daemon=True)
+            t.start()
+            st.session_state.engine_thread = t
+    except Exception as e:
+        print(f"Error starting engine: {e}")
+
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     # ── Logo Banner ──
@@ -179,12 +201,15 @@ with st.sidebar:
     if LOG_FILE.exists():
         try: df_rows = sum(1 for _ in open(LOG_FILE))
         except: pass
+    
+    engine_type = st.session_state.get('current_engine_type', 'UNKNOWN')
+    
     st.markdown(f"""
     <div class="sb-card">
       <div class="sb-card-title">⬡ SYSTEM STATUS</div>
       <div class="sb-stat">
-        <span class="sb-stat-label">ENGINE</span>
-        <span><span class="dot-green"></span>&nbsp;<span style="color:#00ff88;font-size:.72rem">ONLINE</span></span>
+        <span class="sb-stat-label">ENGINE TYPE</span>
+        <span><span class="dot-green"></span>&nbsp;<span style="color:#00ff88;font-size:.72rem;font-weight:bold;">{engine_type}</span></span>
       </div>
       <div class="sb-stat">
         <span class="sb-stat-label">CPU LOAD</span>
@@ -286,13 +311,14 @@ tab_map = {
 current_tabs = tab_map.get(PROJECT_PHASE, tab_map[4])
 tabs = st.tabs(current_tabs)
 
-# Assign tabs to variables based on availability
-t1 = tabs[0]
-t2 = tabs[1] if len(tabs) > 1 else None
-t3 = tabs[2] if len(tabs) > 2 else None
-t4 = tabs[3] if len(tabs) > 3 else None
-t5 = tabs[4] if len(tabs) > 4 else None
-t6 = tabs[5] if len(tabs) > 5 else None
+# Assign tabs to variables based on their names
+tab_dict = dict(zip(current_tabs, tabs))
+t1 = tab_dict.get("🔴 Live Monitor")
+t2 = tab_dict.get("📊 Attack Analytics")
+t3 = tab_dict.get("🕸️ Threat Graph")
+t4 = tab_dict.get("💻 System Metrics")
+t5 = tab_dict.get("📋 Reports")
+t6 = tab_dict.get("📡 Packet Forensics")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 1 — LIVE MONITOR
