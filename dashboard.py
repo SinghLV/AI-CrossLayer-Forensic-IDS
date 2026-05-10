@@ -164,6 +164,12 @@ def get_sys_metrics():
 # ── Auto-Start Real-Time Engine ────────────────────────────────────────────────
 if "engine_started" not in st.session_state:
     st.session_state.engine_started = True
+    
+    # Clear logs on fresh start for live demo
+    if LOG_FILE.exists():
+        try: LOG_FILE.unlink()
+        except Exception: pass
+
     st.session_state.current_engine_type = "SCAPY" if PROJECT_PHASE <= 2 else "TSHARK"
     st.session_state.engine_thread = None
     
@@ -261,6 +267,11 @@ with st.sidebar:
       <div class="sb-card-title">⚡ ACTIONS</div>
     </div>
     """, unsafe_allow_html=True)
+    if st.button("🧹  Clear Logs"):
+        if LOG_FILE.exists():
+            try: LOG_FILE.unlink()
+            except Exception: pass
+        st.rerun()
     if st.button("🌱  Seed Demo Data"):
         try:
             from demo_mode import seed_demo_log
@@ -352,6 +363,8 @@ with t1:
         # Live feed
         st.subheader("Live Anomaly Feed")
         cols=["timestamp","src_ip","dst_ip","attack_type","severity","reconstruction_error","hint"]
+        if PROJECT_PHASE < 4 and "hint" in cols:
+            cols.remove("hint")
         show_cols=[c for c in cols if c in df.columns]
         recent_df=df.sort_values("timestamp",ascending=False).head(20)[show_cols]
 
