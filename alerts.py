@@ -351,7 +351,7 @@ class AlertDispatcher:
     ) -> Alert:
         """Convenience: build an Alert and dispatch it in one call."""
         alert = Alert(
-            timestamp   = datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            timestamp   = datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             severity    = severity,
             attack_type = attack_type,
             src_ip      = src_ip,

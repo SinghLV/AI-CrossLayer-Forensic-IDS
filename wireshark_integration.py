@@ -158,21 +158,38 @@ def extract_features_from_tshark_packet(pkt: dict) -> Optional[np.ndarray]:
     features = np.zeros(84, dtype=np.float32)
     try:
         layers = pkt.get("_source", {}).get("layers", {})
+        
+        def safe_get(obj, *keys):
+            if isinstance(obj, list):
+                obj = obj[0] if obj else {}
+            if not isinstance(obj, dict):
+                return 0
+            for k in keys:
+                if k in obj:
+                    return obj[k]
+            return 0
+            
+        def safe_layer(name):
+            layer = layers.get(name, {})
+            if isinstance(layer, list):
+                return layer[0] if layer else {}
+            return layer
 
         # Frame
-        frame = layers.get("frame", {})
-        features[0]  = float(frame.get("frame.len", 0))
-        features[35] = float(frame.get("frame.time_delta", 0))
+        frame = safe_layer("frame")
+        features[0]  = float(safe_get(frame, "frame.len", "frame_frame_len", "frame_len"))
+        features[35] = float(safe_get(frame, "frame.time_delta", "frame_frame_time_delta"))
 
         # IP
-        ip = layers.get("ip", {})
+        ip = safe_layer("ip")
         if ip:
-            features[1] = float(ip.get("ip.ttl", 0))
-            features[2] = float(ip.get("ip.proto", 0))
-            features[3] = float(ip.get("ip.len", 0))
-            flags_hex = ip.get("ip.flags", "0x0")
+            features[1] = float(safe_get(ip, "ip.ttl", "ip_ip_ttl"))
+            features[2] = float(safe_get(ip, "ip.proto", "ip_ip_proto"))
+            features[3] = float(safe_get(ip, "ip.len", "ip_ip_len"))
+            flags_hex = safe_get(ip, "ip.flags", "ip_ip_flags")
+            if not isinstance(flags_hex, str): flags_hex = str(flags_hex)
             try:
-                flag_val = int(flags_hex, 16)
+                flag_val = int(flags_hex, 16) if flags_hex.startswith("0x") else int(flags_hex)
                 features[4] = float(flag_val)
                 features[6] = float(flag_val & 0x1)  # MF
                 features[7] = float(flag_val & 0x2)  # DF
@@ -180,18 +197,19 @@ def extract_features_from_tshark_packet(pkt: dict) -> Optional[np.ndarray]:
                 pass
 
         # TCP
-        tcp = layers.get("tcp", {})
+        tcp = safe_layer("tcp")
         if tcp:
-            features[8]  = float(tcp.get("tcp.srcport", 0))
-            features[9]  = float(tcp.get("tcp.dstport", 0))
-            features[10] = float(tcp.get("tcp.seq", 0))
-            features[11] = float(tcp.get("tcp.ack", 0))
-            features[12] = float(tcp.get("tcp.hdr_len", 0))
-            features[14] = float(tcp.get("tcp.window_size", 0))
+            features[8]  = float(safe_get(tcp, "tcp.srcport", "tcp_tcp_srcport"))
+            features[9]  = float(safe_get(tcp, "tcp.dstport", "tcp_tcp_dstport"))
+            features[10] = float(safe_get(tcp, "tcp.seq", "tcp_tcp_seq"))
+            features[11] = float(safe_get(tcp, "tcp.ack", "tcp_tcp_ack"))
+            features[12] = float(safe_get(tcp, "tcp.hdr_len", "tcp_tcp_hdr_len"))
+            features[14] = float(safe_get(tcp, "tcp.window_size", "tcp_tcp_window_size"))
             # TCP Flags
-            flags_hex = tcp.get("tcp.flags", "0x0")
+            flags_hex = safe_get(tcp, "tcp.flags", "tcp_tcp_flags")
+            if not isinstance(flags_hex, str): flags_hex = str(flags_hex)
             try:
-                tf = int(flags_hex, 16)
+                tf = int(flags_hex, 16) if flags_hex.startswith("0x") else int(flags_hex)
                 features[13] = float(tf)
                 features[16] = float(tf & 0x01)  # FIN
                 features[17] = float(tf & 0x02)  # SYN
@@ -202,44 +220,51 @@ def extract_features_from_tshark_packet(pkt: dict) -> Optional[np.ndarray]:
             except Exception:
                 pass
             # TShark-exclusive: TCP retransmission
-            analysis = tcp.get("tcp.analysis", {})
+            analysis = safe_layer("tcp.analysis")
+            if not analysis:
+                analysis = tcp.get("tcp.analysis", {})
+                if isinstance(analysis, list): analysis = analysis[0] if analysis else {}
             if isinstance(analysis, dict):
-                features[36] = 1.0 if "tcp.analysis.retransmission" in analysis else 0.0
+                features[36] = 1.0 if "tcp.analysis.retransmission" in analysis or "tcp_analysis_retransmission" in analysis else 0.0
             # Stealth TLS burst
-            dport = int(tcp.get("tcp.dstport", 0))
+            dport = int(features[9])
             if dport in (443, 8443, 4433) and features[0] > 1400:
                 features[34] = 1.0
 
         # UDP
-        udp = layers.get("udp", {})
+        udp = safe_layer("udp")
         if udp:
-            features[22] = float(udp.get("udp.srcport", 0))
-            features[23] = float(udp.get("udp.dstport", 0))
-            features[24] = float(udp.get("udp.length", 0))
+            features[22] = float(safe_get(udp, "udp.srcport", "udp_udp_srcport"))
+            features[23] = float(safe_get(udp, "udp.dstport", "udp_udp_dstport"))
+            features[24] = float(safe_get(udp, "udp.length", "udp_udp_length"))
 
         # ICMP
-        icmp = layers.get("icmp", {})
+        icmp = safe_layer("icmp")
         if icmp:
-            features[25] = float(icmp.get("icmp.type", 0))
-            features[26] = float(icmp.get("icmp.code", 0))
+            features[25] = float(safe_get(icmp, "icmp.type", "icmp_icmp_type"))
+            features[26] = float(safe_get(icmp, "icmp.code", "icmp_icmp_code"))
 
         # TLS handshake
-        tls = layers.get("tls", {})
+        tls = safe_layer("tls")
         if tls:
-            hs = tls.get("tls.handshake", {})
-            features[37] = float(hs.get("tls.handshake.type", 0)) if isinstance(hs, dict) else 0.0
+            hs = safe_layer("tls.handshake")
+            if not hs:
+                hs = tls.get("tls.handshake", {})
+                if isinstance(hs, list): hs = hs[0] if hs else {}
+            features[37] = float(safe_get(hs, "tls.handshake.type", "tls_handshake_type"))
 
         # DNS
-        dns = layers.get("dns", {})
+        dns = safe_layer("dns")
         if dns:
-            features[38] = float(dns.get("dns.count.queries", 0))
+            features[38] = float(safe_get(dns, "dns.count.queries", "dns_count_queries"))
 
         # Malformed
         ws = layers.get("_ws.malformed", None)
         features[39] = 1.0 if ws is not None else 0.0
 
         # Private IP check
-        src_ip = ip.get("ip.src", "") if ip else ""
+        src_ip = safe_get(ip, "ip.src", "ip_ip_src")
+        if not isinstance(src_ip, str): src_ip = str(src_ip)
         features[33] = 1.0 if src_ip.startswith(("192.168.", "10.", "172.16.")) else 0.0
 
         features = np.nan_to_num(features, nan=0.0, posinf=0.0, neginf=0.0)
@@ -253,8 +278,13 @@ def _get_ip_from_pkt(pkt: dict) -> tuple[str, str, str]:
     """Return (src_ip, dst_ip, protocol) from a tshark packet dict."""
     layers = pkt.get("_source", {}).get("layers", {})
     ip = layers.get("ip", {})
-    src = ip.get("ip.src", "0.0.0.0")
-    dst = ip.get("ip.dst", "0.0.0.0")
+    if isinstance(ip, list): ip = ip[0] if ip else {}
+    if not isinstance(ip, dict): ip = {}
+    
+    src = ip.get("ip.src", ip.get("ip_ip_src", "0.0.0.0"))
+    dst = ip.get("ip.dst", ip.get("ip_ip_dst", "0.0.0.0"))
+    if isinstance(src, list): src = src[0] if src else "0.0.0.0"
+    if isinstance(dst, list): dst = dst[0] if dst else "0.0.0.0"
     if "tcp" in layers:
         proto = "TCP"
     elif "udp" in layers:

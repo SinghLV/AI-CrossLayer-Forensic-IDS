@@ -188,14 +188,15 @@ def _check_ports(feat: np.ndarray, reasons: List[str]) -> int:
     udp_sport = int(feat[FI["udp_sport"]])
     udp_dport = int(feat[FI["udp_dport"]])
 
-    for port_name, port_val in [("TCP src", tcp_sport), ("TCP dst", tcp_dport),
-                                  ("UDP src", udp_sport), ("UDP dst", udp_dport)]:
-        if port_val == 0:
-            continue
+    # Only flag DESTINATION ports in ephemeral range (servers usually shouldn't listen here)
+    for port_name, port_val in [("TCP dst", tcp_dport), ("UDP dst", udp_dport)]:
         if port_val > EPHEMERAL_PORT_THRESHOLD:
-            reasons.append(f"{port_name} port {port_val} is in the ephemeral/dynamic range")
+            reasons.append(f"{port_name} port {port_val} is in the ephemeral/dynamic range (unusual for target)")
             score += 1
-        # Common attack target ports
+            
+    # Common attack target ports
+    for port_name, port_val in [("TCP src", tcp_sport), ("TCP dst", tcp_dport),
+                                ("UDP src", udp_sport), ("UDP dst", udp_dport)]:
         if port_val in {22, 23, 3389, 445, 1433, 3306, 27017}:
             reasons.append(f"{port_name} port {port_val} is a high-value attack target")
             score += 2
@@ -241,12 +242,12 @@ def _check_system_metrics(feat: np.ndarray, reasons: List[str]) -> int:
     """Cross-layer: correlate packet anomaly with CPU/IRQ spike."""
     score = 0
     if len(feat) > FI["cpu_usage"] and feat[FI["cpu_usage"]] > HIGH_CPU_THRESHOLD:
-        reasons.append(f"CPU usage spike ({feat[FI['cpu_usage']]*100:.1f}%) coincides with network anomaly")
-        score += 2
+        reasons.append(f"CPU usage spike ({feat[FI['cpu_usage']]*100:.1f}%) detected during network event")
+        score += 1
 
     if len(feat) > FI["net_irq"] and feat[FI["net_irq"]] > HIGH_IRQ_THRESHOLD:
-        reasons.append("Elevated network IRQ frequency — hardware-level traffic surge detected")
-        score += 2
+        reasons.append("Elevated network IRQ frequency detected")
+        score += 1
 
     if len(feat) > FI["irq_spike"] and feat[FI["irq_spike"]] > 0.5:
         reasons.append("IRQ spike flag active — kernel interrupt storm correlates with attack")
@@ -375,12 +376,17 @@ class XAIEngine:
             reasons.insert(0, atk_reason)
 
         # ── If no specific rules fired, add generic reason ────────────────────
-        if len(reasons) <= 1:
+        if len(reasons) <= 1 and attack_type != "Normal":
             reasons.append(
                 f"LSTM reconstruction error ({reconstruction_error:.6f}) "
                 f"exceeds adaptive threshold ({threshold:.6f}) by "
                 f"{((reconstruction_error/max(threshold,1e-9)-1)*100):.1f}%"
             )
+            
+        # ── Handle true "Normal" traffic cleanly ──────────────────────────────
+        if attack_type == "Normal" and reconstruction_error < threshold:
+            reasons = ["Traffic conforms to expected baseline behavior."]
+            rule_score = 0
 
         # ── Severity & risk score ──────────────────────────────────────────────
         severity, risk_score = classify_severity(

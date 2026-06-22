@@ -181,14 +181,18 @@ class RealtimeDetector:
         # ── Statistics ─────────────────────────────────────────────────────────
         self._total    = 0
         self._anomaly  = 0
-        self._lock     = threading.Lock()
-
+        self._stop_event = threading.Event()
+        
+        # Immediate console feedback for the user
+        print(f"\n[ENGINE] RealtimeDetector initialized (AI Phase: {PROJECT_PHASE if 'PROJECT_PHASE' in globals() else 2})")
         logger.info("RealtimeDetector initialized.")
 
     # ── Packet Callback ────────────────────────────────────────────────────────
 
     def _on_packet(self, packet):
         """Scapy callback — submit packet to async processing pool."""
+        if self._total % 10 == 0:
+            print(".", end="", flush=True) # Show progress dots in terminal
         self._executor.submit(self._process, packet)
 
     def _process(self, packet):
@@ -242,17 +246,34 @@ class RealtimeDetector:
             logger.error("Scapy is not installed. Cannot capture live packets.")
             return
 
+        # ── Cross-Platform Interface Selection ──
+        if interface is None:
+            if sys.platform == "darwin":
+                interface = "en0"
+                print(f"[ENGINE] macOS detected. Defaulting to interface: {interface}")
+            elif sys.platform == "win32":
+                # On Windows, Scapy usually handles None by picking the default route
+                print(f"[ENGINE] Windows detected. Using system default interface.")
+            else:
+                print(f"[ENGINE] Linux/Unix detected. Using default interface.")
+
+        print(f"[ENGINE] Starting Sniffer on {interface or 'System Default'} (Filter: {pkt_filter})...")
         logger.info(f"Starting packet capture (interface={interface or 'default'}, "
                     f"filter='{pkt_filter}')")
-        logger.info("Press Ctrl+C to stop.")
-
+        
         try:
-            sniff(
-                iface  = interface,
-                filter = pkt_filter,
-                prn    = self._on_packet,
-                store  = 0,         # do not store packets in memory
-            )
+            # Use a short timeout in a loop to check the stop event
+            while not self._stop_event.is_set():
+                sniff(
+                    iface  = interface,
+                    filter = pkt_filter,
+                    prn    = self._on_packet,
+                    store  = 0,
+                    timeout=1,
+                    stop_filter=lambda x: self._stop_event.is_set()
+                )
+        except (KeyboardInterrupt, SystemExit):
+            print("\n[ENGINE] Sniffer stopping...")
         except PermissionError:
             logger.error(
                 "Permission denied — run as root/Administrator for packet capture.\n"
@@ -260,9 +281,10 @@ class RealtimeDetector:
                 "  Linux:   sudo python realtime_detector.py\n"
                 "  Windows: Run PowerShell as Administrator"
             )
-        except KeyboardInterrupt:
-            logger.info("Capture stopped by user.")
+        except Exception as e:
+            logger.error(f"Sniffer encountered an error: {e}")
         finally:
+            self._stop_event.set()
             self.stop()
 
     def stop(self):

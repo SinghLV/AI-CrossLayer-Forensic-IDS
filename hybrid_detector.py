@@ -95,9 +95,14 @@ class AdaptiveThreshold:
             self._window.append(error)
             self._packet_count += 1
 
-            # Recalculate every N packets
-            if self._packet_count % self._update_interval == 0:
-                self._recalculate()
+        # Recalculate every N packets
+        if self._packet_count % self._update_interval == 0:
+            self._recalculate()
+            
+        # Demo Fix: Don't let the threshold adapt too high (clamp at 1.0)
+        # This prevents the AI from "normalizing" the attack traffic.
+        if self._current > 1.0:
+            self._current = 1.0
 
     def _recalculate(self):
         if len(self._window) < 10:
@@ -156,9 +161,14 @@ class HybridDetector:
         self._threshold   = AdaptiveThreshold(self._base_threshold)
 
         # ── Statistics ────────────────────────────────────────────────────────
-        self.total_packets  = 0
+        self.total_packets   = 0
         self.total_anomalies = 0
-
+        
+        print("\n" + "="*40)
+        print("🚀 [AI ENGINE] VERSION 2.0 - LOCAL TIME ACTIVE")
+        print("="*40 + "\n")
+        
+        # Load components
         self._load_models()
 
     # ── Model Loading ──────────────────────────────────────────────────────────
@@ -356,7 +366,7 @@ class HybridDetector:
             "src_ip":        src_ip,
             "dst_ip":        dst_ip,
             "protocol":      protocol,
-            "timestamp":     datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            "timestamp":     datetime.now().isoformat(timespec="seconds"),
             "explanation":   explanation.to_dict() if explanation else None,
         }
         return result
@@ -370,7 +380,7 @@ class HybridDetector:
     ):
         """Append a JSON line to anomalies.log."""
         record = {
-            "timestamp":          datetime.utcnow().isoformat(),
+            "timestamp":          datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "src_ip":             src_ip,
             "dst_ip":             dst_ip,
             "protocol":           protocol,

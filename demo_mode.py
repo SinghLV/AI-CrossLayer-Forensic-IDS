@@ -257,7 +257,7 @@ def write_demo_log(packet_info: Dict, reconstruction_error: float, threshold: fl
         return   # Only log anomalies
 
     record = {
-        "timestamp":           datetime.utcnow().isoformat(),
+        "timestamp":           datetime.now().isoformat(),
         "src_ip":              packet_info["src_ip"],
         "dst_ip":              packet_info["dst_ip"],
         "protocol":            packet_info["protocol"],
@@ -386,7 +386,7 @@ def seed_demo_log(n_entries: int = 200, clear_existing: bool = False):
 
         # Spread timestamps over the last 2 hours
         ago_seconds = random.randint(0, 7200)
-        ts = datetime.utcfromtimestamp(time.time() - ago_seconds).isoformat()
+        ts = datetime.fromtimestamp(time.time() - ago_seconds).isoformat()
 
         feat  = pkt_info["features"]
         error = float(np.mean(feat ** 2)) + random.uniform(0.05, 0.5)

@@ -66,7 +66,7 @@ class TSharkRealtimeDetector:
             src_ip, dst_ip, proto = _get_ip_from_pkt(pkt)
 
             result = self._detector.predict(
-                features,
+                features[:79],
                 src_ip=src_ip,
                 dst_ip=dst_ip,
                 protocol=proto,
@@ -95,6 +95,9 @@ class TSharkRealtimeDetector:
         if not TSHARK_PATH:
             logger.error("TShark is not installed. Cannot capture live packets.")
             return
+
+        if interface is None and sys.platform == "darwin":
+            interface = "en0"
 
         cmd = [TSHARK_PATH, "-l", "-T", "ek"]
         if interface:

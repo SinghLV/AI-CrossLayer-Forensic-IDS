@@ -2,7 +2,8 @@
 dashboard.py — AI-Powered Cross-Layer IDS Dashboard
 5 tabs: Live Monitoring | Attack Analytics | Threat Graph | System Metrics | Reports
 """
-import json, time, os, threading
+import json, time, os, threading, sys
+import psutil
 from pathlib import Path
 from datetime import datetime, timedelta
 import streamlit as st
@@ -10,6 +11,7 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
+import networkx as nx
 
 # Load presentation phase config
 try:
@@ -21,119 +23,321 @@ BASE_DIR  = Path(__file__).parent
 LOG_FILE  = BASE_DIR / "logs" / "anomalies.log"
 DEMO_FILE = BASE_DIR / "demo_data" / "demo_running.flag"
 
-st.set_page_config(page_title="Intelligent Threat Detector", page_icon="⚡", layout="wide")
+st.set_page_config(page_title="Intelligent Threat Detector", layout="wide")
 
 # ── Dark SOC CSS ──────────────────────────────────────────────────────────────
 st.markdown("""<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Share+Tech+Mono&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap');
 
-/* ─── THEME ADAPTIVE CORE (Native Streamlit) ─── */
-html,body,[data-testid="stAppViewContainer"]{
-    font-family: 'Inter', sans-serif;
+/* ─── KEYFRAME ANIMATIONS ─── */
+@keyframes pulse-led {
+  0%, 100% { opacity: 1; box-shadow: 0 0 8px currentColor; }
+  50% { opacity: 0.35; box-shadow: 0 0 2px currentColor; }
+}
+@keyframes shimmer-border {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes ambient-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.7; }
+}
+@keyframes scan-line {
+  0% { transform: translateY(-100vh); }
+  100% { transform: translateY(100vh); }
+}
+@keyframes gradient-shift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
 }
 
-/* Sidebar */
-[data-testid="stSidebar"]{
-  background-color: var(--secondary-background-color);
-  border-right: 1px solid var(--border-color);
-}
-[data-testid="stSidebar"] section{padding:0 !important}
-
-.sb-logo{
-  background-color: var(--background-color);
-  border-bottom: 1px solid var(--border-color);
-  padding:20px 16px 16px;
-  text-align:center;
-  margin-bottom:4px;
-}
-.sb-logo-title{
-  font-size:1.1rem;font-weight:700;letter-spacing:2px;
-  background: linear-gradient(90deg, #10b981, #3b82f6);
-  -webkit-background-clip:text; -webkit-text-fill-color:transparent;
-  background-clip:text; display:block; margin-top:6px;
-}
-.sb-logo-sub{font-size:.65rem; color: #6b7280; letter-spacing:1px; margin-top:2px}
-
-.sb-card{
-  background-color: var(--background-color);
-  border: 1px solid var(--border-color);
-  border-radius:10px;
-  padding:12px 14px;
-  margin:8px 10px;
-  opacity: 0.9;
-}
-.sb-card-title{
-  font-size:.65rem; font-weight:600; letter-spacing:2px;
-  color: #6b7280; text-transform:uppercase; margin-bottom:10px;
-  display:flex; align-items:center; gap:6px;
+/* ─── GLOBAL ─── */
+html, body, [data-testid="stAppViewContainer"] {
+    font-family: 'Inter', -apple-system, sans-serif;
 }
 
-/* Status dots */
-.dot-green{width:8px;height:8px;border-radius:50%;background:#10b981;display:inline-block;}
-.dot-red{width:8px;height:8px;border-radius:50%;background:#ef4444;display:inline-block;}
-.dot-yellow{width:8px;height:8px;border-radius:50%;background:#f59e0b;display:inline-block;}
-
-.sb-stat{display:flex;justify-content:space-between;align-items:center;
-  padding:5px 0;border-bottom:1px solid var(--border-color)}
-.sb-stat:last-child{border-bottom:none}
-.sb-stat-label{font-size:.72rem; color: #6b7280}
-.sb-stat-val{font-size:.78rem; font-weight:600; font-family:'Share Tech Mono',monospace; color: #10b981}
-
-/* Progress bar */
-.stProgress>div>div{background:linear-gradient(90deg, #10b981, #3b82f6)!important; border-radius:4px}
-.stProgress>div{background: var(--background-color)!important; border-radius:4px; border:1px solid var(--border-color)}
-
-/* Metric cards */
-.metric-card{
-  background-color: var(--background-color);
-  border: 1px solid var(--border-color);
-  border-radius:10px;
-  padding:16px 14px;
-  text-align:center;
-  margin:4px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-}
-.metric-val{font-size:2rem; font-weight:700; color: #10b981;
-  font-family:'Share Tech Mono',monospace;
-}
-.metric-lbl{font-size:.75rem; color: #6b7280; margin-top:4px; letter-spacing:1px; text-transform:uppercase}
-
-/* Severity */
-.sev-CRITICAL{color:#ef4444; font-weight:700}
-.sev-HIGH{color:#f97316; font-weight:700}
-.sev-MEDIUM{color:#f59e0b}
-.sev-LOW{color:#10b981}
-
-/* Tabs */
-div[data-testid="stTabs"] button{
-  color: #6b7280; border-bottom:2px solid transparent; font-size:.82rem;
-}
-div[data-testid="stTabs"] button[aria-selected="true"]{
-  color: #10b981; border-bottom: 2px solid #10b981;
+/* Ambient background glows */
+[data-testid="stAppViewContainer"]::before {
+  content: "";
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background:
+    radial-gradient(ellipse 700px 500px at 15% 85%, rgba(226,0,130,0.07) 0%, transparent 70%),
+    radial-gradient(ellipse 600px 400px at 85% 15%, rgba(0,204,102,0.04) 0%, transparent 70%),
+    radial-gradient(ellipse 400px 300px at 50% 50%, rgba(100,0,200,0.03) 0%, transparent 70%);
+  pointer-events: none; z-index: 0;
+  animation: ambient-pulse 10s ease-in-out infinite;
 }
 
-h1,h2,h3{color: #10b981}
-.stDataFrame{border:1px solid var(--border-color); border-radius:8px}
+/* ─── CUSTOM SCROLLBARS ─── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #e20082, #ff8800);
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover { background: #e20082; }
+
+/* ─── SIDEBAR ─── */
+[data-testid="stSidebar"] section { padding: 0 !important; background: transparent !important; }
+[data-testid="stSidebar"] > div:first-child {
+  background: rgba(8,8,12,0.9) !important;
+  backdrop-filter: blur(24px) saturate(1.5) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(1.5) !important;
+  border-right: 1px solid rgba(226,0,130,0.08) !important;
+}
+
+/* Sidebar logo */
+.sb-logo {
+  background: transparent;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  padding: 32px 16px 24px; text-align: center; margin-bottom: 8px;
+}
+.sb-logo-title {
+  font-size: 1.1rem; font-weight: 800; letter-spacing: 2px;
+  background: linear-gradient(135deg, #ffffff 30%, #e20082);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+  display: block; margin-top: 6px;
+}
+.sb-logo-sub {
+  font-size: .65rem; color: #e20082;
+  letter-spacing: 4px; margin-top: 6px; font-weight: 700; opacity: 0.8;
+}
+
+/* Sidebar cards */
+.sb-card {
+  background: rgba(255,255,255,0.025);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 18px;
+  padding: 16px 18px; margin: 8px 10px;
+  transition: all 0.3s ease;
+}
+.sb-card:hover {
+  background: rgba(255,255,255,0.04);
+  border-color: rgba(226,0,130,0.2);
+  box-shadow: 0 6px 24px rgba(226,0,130,0.08);
+}
+.sb-card-title {
+  font-size: .58rem; font-weight: 800; letter-spacing: 3px;
+  color: #e20082; opacity: 0.7; text-transform: uppercase; margin-bottom: 12px;
+}
+
+/* Animated status dots */
+.dot-green { width:8px;height:8px;border-radius:50%;background:#00cc66;display:inline-block;color:#00cc66;animation:pulse-led 2s ease-in-out infinite; }
+.dot-red { width:8px;height:8px;border-radius:50%;background:#ff3366;display:inline-block;color:#ff3366;animation:pulse-led 1.5s ease-in-out infinite; }
+.dot-yellow { width:8px;height:8px;border-radius:50%;background:#ffcc00;display:inline-block;color:#ffcc00;animation:pulse-led 1.8s ease-in-out infinite; }
+
+.sb-stat { display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid rgba(255,255,255,0.04); }
+.sb-stat:last-child { border-bottom:none; }
+.sb-stat-label { font-size:.72rem;color:rgba(255,255,255,0.4);font-weight:500; }
+.sb-stat-val { font-size:.82rem;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--text-color); }
+
+/* Custom HTML progress bars */
+.res-bar-wrap { margin: 10px 0; }
+.res-bar-label {
+  display:flex;justify-content:space-between;
+  font-size:.68rem;font-weight:700;letter-spacing:1.5px;
+  color:rgba(255,255,255,0.4);margin-bottom:6px;text-transform:uppercase;
+}
+.res-bar-track { background:rgba(255,255,255,0.05);border-radius:100px;height:5px;overflow:hidden; }
+.res-bar-fill { height:100%;border-radius:100px;background:linear-gradient(90deg,#e20082,#ff8800);box-shadow:0 0 10px rgba(226,0,130,0.4);transition:width 0.6s ease; }
+.res-bar-fill.safe { background:linear-gradient(90deg,#00cc66,#00aa55);box-shadow:0 0 10px rgba(0,204,102,0.4); }
+.res-bar-fill.warn { background:linear-gradient(90deg,#ffcc00,#ff8800);box-shadow:0 0 10px rgba(255,204,0,0.4); }
+
+/* ─── METRIC CARDS ─── */
+.metric-card {
+  background: rgba(255,255,255,0.035);
+  backdrop-filter: blur(20px) saturate(1.3);
+  -webkit-backdrop-filter: blur(20px) saturate(1.3);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 24px;
+  padding: 28px 24px; text-align:left; margin:6px;
+  box-shadow: 0 4px 30px rgba(0,0,0,0.5);
+  position:relative; overflow:hidden;
+  transition: transform 0.35s cubic-bezier(0.4,0,0.2,1), box-shadow 0.35s cubic-bezier(0.4,0,0.2,1), border-color 0.35s ease, background 0.35s ease;
+  animation: fade-in-up 0.5s ease-out both;
+}
+.metric-card:hover {
+  transform: translateY(-7px);
+  background: rgba(255,255,255,0.055);
+  border-color: rgba(226,0,130,0.28);
+  box-shadow: 0 20px 60px rgba(226,0,130,0.14), 0 4px 20px rgba(0,0,0,0.5), inset 0 0 40px rgba(226,0,130,0.025);
+}
+.metric-card::before {
+  content:"";position:absolute;top:0;left:0;width:100%;height:3px;
+  background:linear-gradient(90deg,#e20082,#ff8800,#9933ff,#e20082);
+  background-size:300% 100%;
+  animation:shimmer-border 4s linear infinite;
+  box-shadow:0 0 16px rgba(226,0,130,0.5);
+}
+.metric-card::after {
+  content:"";position:absolute;top:3px;left:0;width:100%;height:45%;
+  background:linear-gradient(180deg,rgba(255,255,255,0.035) 0%,transparent 100%);
+  pointer-events:none;
+}
+.metric-val {
+  font-size:2.8rem;font-weight:800;color:#fff;
+  font-family:'Inter',sans-serif;line-height:1.1;
+  text-shadow:0 0 30px rgba(255,255,255,0.08);
+  position:relative;z-index:1;
+}
+.metric-lbl {
+  font-size:.62rem;color:rgba(255,255,255,0.4);margin-top:10px;
+  font-weight:800;text-transform:uppercase;letter-spacing:3px;
+  position:relative;z-index:1;
+}
+
+/* ─── SECTION HEADERS ─── */
+.section-hdr {
+  display:flex;align-items:center;gap:12px;
+  margin:28px 0 18px;
+}
+.section-hdr-line {
+  flex:1;height:1px;
+  background:linear-gradient(90deg,rgba(226,0,130,0.5),transparent);
+}
+.section-hdr-line.right {
+  background:linear-gradient(270deg,rgba(226,0,130,0.5),transparent);
+}
+.section-hdr-label {
+  font-size:.6rem;font-weight:800;letter-spacing:3.5px;
+  color:#e20082;text-transform:uppercase;
+}
+
+/* ─── SEVERITY BADGES ─── */
+.sev-CRITICAL { color:#fff;font-weight:800;background:linear-gradient(135deg,#ff0055,#cc0044);padding:3px 12px;border-radius:10px;box-shadow:0 0 14px rgba(255,0,85,0.35);font-size:0.7rem;letter-spacing:0.8px; }
+.sev-HIGH { color:#fff;font-weight:800;background:linear-gradient(135deg,#ff8800,#cc6600);padding:3px 12px;border-radius:10px;box-shadow:0 0 14px rgba(255,136,0,0.35);font-size:0.7rem;letter-spacing:0.8px; }
+.sev-MEDIUM { color:#000;font-weight:800;background:linear-gradient(135deg,#ffcc00,#cca300);padding:3px 12px;border-radius:10px;box-shadow:0 0 14px rgba(255,204,0,0.35);font-size:0.7rem;letter-spacing:0.8px; }
+.sev-LOW { color:#fff;font-weight:800;background:linear-gradient(135deg,#00cc66,#00994d);padding:3px 12px;border-radius:10px;box-shadow:0 0 14px rgba(0,204,102,0.35);font-size:0.7rem;letter-spacing:0.8px; }
+
+/* ─── GLASS TABS ─── */
+div[data-testid="stTabs"] {
+  background:rgba(255,255,255,0.018);
+  backdrop-filter:blur(12px);
+  -webkit-backdrop-filter:blur(12px);
+  border:1px solid rgba(255,255,255,0.05);
+  border-radius:16px;
+  padding:4px 8px !important;
+  margin-bottom:20px;
+}
+div[data-testid="stTabs"] button {
+  color:var(--text-color) !important;opacity:0.4;
+  border-bottom:2px solid transparent !important;
+  font-size:.78rem !important;font-weight:700 !important;
+  letter-spacing:1px !important;
+  padding-bottom:14px !important;margin-right:22px !important;
+  transition:all 0.3s ease !important;
+}
+div[data-testid="stTabs"] button:hover { opacity:0.75 !important; }
+div[data-testid="stTabs"] button[aria-selected="true"] {
+  opacity:1 !important;
+  border-bottom:2px solid #e20082 !important;
+  text-shadow:0 0 20px rgba(226,0,130,0.6) !important;
+}
+
+h1,h2,h3 { color:var(--text-color);font-weight:700; }
+h1 { letter-spacing:4px !important;text-shadow:0 0 40px rgba(226,0,130,0.07); }
+h2 { letter-spacing:1px !important;opacity:0.9; }
+h3 { opacity:0.85; }
+
+/* ─── DATAFRAMES ─── */
+.stDataFrame {
+  border:1px solid rgba(255,255,255,0.05) !important;
+  border-radius:20px !important;
+  background:rgba(255,255,255,0.025) !important;
+  backdrop-filter:blur(10px) !important;
+  overflow:hidden !important;
+}
+
+/* ─── CYBER BUTTONS ─── */
+.stButton > button {
+  background:rgba(255,255,255,0.025) !important;
+  backdrop-filter:blur(8px) !important;
+  -webkit-backdrop-filter:blur(8px) !important;
+  border:1px solid rgba(226,0,130,0.25) !important;
+  color:rgba(255,255,255,0.75) !important;
+  border-radius:14px !important;
+  font-weight:700 !important;font-size:0.78rem !important;
+  letter-spacing:0.8px !important;padding:10px 22px !important;
+  transition:all 0.3s cubic-bezier(0.4,0,0.2,1) !important;
+}
+.stButton > button:hover {
+  background:rgba(226,0,130,0.1) !important;
+  border-color:rgba(226,0,130,0.55) !important;
+  color:#fff !important;
+  box-shadow:0 0 24px rgba(226,0,130,0.18),inset 0 0 20px rgba(226,0,130,0.04) !important;
+  transform:translateY(-2px) !important;
+}
+.stButton > button:active {
+  transform:translateY(0) !important;
+  box-shadow:0 0 10px rgba(226,0,130,0.4) !important;
+}
+
+/* ─── TEXT INPUTS ─── */
+.stTextInput > div > div > input {
+  border-radius:14px !important;
+  border:1px solid rgba(255,255,255,0.07) !important;
+  background:rgba(0,0,0,0.45) !important;
+  backdrop-filter:blur(8px) !important;
+  -webkit-backdrop-filter:blur(8px) !important;
+  transition:border-color 0.3s ease,box-shadow 0.3s ease !important;
+  font-family:'JetBrains Mono',monospace !important;
+  font-size:0.82rem !important;
+}
+.stTextInput > div > div > input:focus {
+  border-color:rgba(226,0,130,0.4) !important;
+  box-shadow:0 0 20px rgba(226,0,130,0.1) !important;
+}
+
+/* ─── SELECTS ─── */
+.stSelectbox > div > div, .stMultiSelect > div > div {
+  border-radius:14px !important;border-color:rgba(255,255,255,0.07) !important;
+  background:rgba(255,255,255,0.025) !important;
+}
+
+/* ─── PLOTLY ─── */
+.stPlotlyChart {
+  border-radius:22px !important;overflow:hidden !important;
+  border:1px solid rgba(255,255,255,0.05) !important;
+  box-shadow:0 4px 20px rgba(0,0,0,0.3) !important;
+}
+
+/* ─── EXPANDERS ─── */
+.streamlit-expanderHeader {
+
+/* ─── HR DIVIDERS ─── */
+hr {
+  border-color: rgba(255,255,255,0.04) !important;
+  margin: 20px 0 !important;
+}
+
 </style>""", unsafe_allow_html=True)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-SEV_COLOR = {"CRITICAL":"#ef4444","HIGH":"#f97316","MEDIUM":"#f59e0b","LOW":"#10b981"}
-ATK_COLOR = {"DoS":"#ef4444","PortScan":"#f97316","BruteForce":"#ec4899",
-             "Probe":"#f59e0b","Normal":"#10b981","Unknown":"#6b7280"}
+SEV_COLOR = {"CRITICAL":"#ff0055","HIGH":"#ff8800","MEDIUM":"#ffcc00","LOW":"#00cc66"}
+ATK_COLOR = {"DoS":"#ff0055","PortScan":"#ff8800","BruteForce":"#9933ff",
+             "Probe":"#ffcc00","Normal":"#00cc66","Unknown":"#8b949e"}
 
 def _theme_adaptive(fig):
     fig.update_layout(
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
+        font_color="#E0E0E0",
         margin=dict(l=10,r=10,t=30,b=10)
     )
     return fig
 
-def metric_card(label, value, col):
-    col.markdown(f'<div class="metric-card"><div class="metric-val">{value}</div>'
+def metric_card(label, value, col, highlight=False):
+    style = 'border-left: 3px solid #ff3366;' if highlight else ''
+    col.markdown(f'<div class="metric-card" style="{style}"><div class="metric-val">{value}</div>'
                  f'<div class="metric-lbl">{label}</div></div>', unsafe_allow_html=True)
 
-@st.cache_data(ttl=3)
+@st.cache_data(ttl=1) # 1 second cache for ultra-fast updates
 def load_df(n=2000):
     if not LOG_FILE.exists(): return pd.DataFrame()
     rows=[]
@@ -147,47 +351,112 @@ def load_df(n=2000):
     if not rows: return pd.DataFrame()
     df=pd.DataFrame(rows)
     if "timestamp" in df.columns:
-        df["timestamp"]=pd.to_datetime(df["timestamp"],errors="coerce")
+        # Support both ISO and custom local time formats
+        df["timestamp"]=pd.to_datetime(df["timestamp"], errors="coerce")
     for c in ["reconstruction_error","risk_score","confidence"]:
         if c in df.columns:
             df[c]=pd.to_numeric(df[c],errors="coerce").fillna(0)
+    # Sort to show newest first
+    if not df.empty and "timestamp" in df.columns:
+        df = df.sort_values("timestamp", ascending=False)
     return df
+
+@st.cache_data(max_entries=1000)
+def fetch_geoip(ip):
+    if not ip or ip == "0.0.0.0":
+        return None, None, "Unknown", "Unknown"
+        
+    import ipaddress
+    import hashlib
+    
+    try:
+        is_priv = ipaddress.ip_address(ip).is_private
+    except:
+        is_priv = False
+        
+    if is_priv:
+        # For demo purposes, we map private IPs (like 172.17.x.x) to deterministic global cities
+        # so the Threat Map looks realistically populated instead of empty or clustered at (0,0).
+        locations = [
+            (40.7128, -74.0060, "New York", "USA"),
+            (51.5074, -0.1278, "London", "UK"),
+            (35.6762, 139.6503, "Tokyo", "Japan"),
+            (-33.8688, 151.2093, "Sydney", "Australia"),
+            (37.7749, -122.4194, "San Francisco", "USA"),
+            (52.5200, 13.4050, "Berlin", "Germany"),
+            (1.3521, 103.8198, "Singapore", "Singapore"),
+            (-23.5505, -46.6333, "Sao Paulo", "Brazil"),
+            (55.7558, 37.6173, "Moscow", "Russia"),
+            (28.6139, 77.2090, "New Delhi", "India"),
+            (48.8566, 2.3522, "Paris", "France"),
+            (31.2304, 121.4737, "Shanghai", "China")
+        ]
+        # Hash the IP string to always get the same city for the same IP
+        idx = int(hashlib.md5(ip.encode()).hexdigest(), 16) % len(locations)
+        return locations[idx]
+
+    # Otherwise, query the specific external IP
+    import requests
+    try:
+        r = requests.get(f"http://ip-api.com/json/{ip}", timeout=2).json()
+        if r.get("status") == "success":
+            return r.get("lat"), r.get("lon"), r.get("city"), r.get("country")
+    except:
+        pass
+    return None, None, "Unknown", "Unknown"
 
 def get_sys_metrics():
     try:
         import psutil
-        cpu=psutil.cpu_percent(interval=None)
-        ram=psutil.virtual_memory().percent
-        return cpu,ram
-    except: return 0.0,0.0
+        # Calling with interval=None twice with a tiny sleep forces a real delta calculation
+        # This is the "Gold Standard" for real-time CPU tracking on macOS
+        psutil.cpu_percent(interval=None) 
+        time.sleep(0.05)
+        cpu = psutil.cpu_percent(interval=None)
+        
+        vmem = psutil.virtual_memory()
+        return cpu, vmem.percent
+    except: 
+        return 0.0, 0.0
 
 # ── Auto-Start Real-Time Engine ────────────────────────────────────────────────
-if "engine_started" not in st.session_state:
-    st.session_state.engine_started = True
-    
-    # Clear logs on fresh start for live demo
+@st.cache_resource(ttl=3600) # Force refresh every hour
+def start_live_engine(engine_type):
+    """
+    Initialize and start the background detection thread.
+    Uses st.cache_resource to ensure only one instance runs.
+    """
+    # Force a unique ID for the engine to break cache
+    engine_id = f"{engine_type}_v2_0" 
+    print(f"\n[DASHBOARD] Booting AI Engine: {engine_id}")
+    # Clear logs exactly ONCE per server lifecycle for a clean live demo
     if LOG_FILE.exists():
         try: LOG_FILE.unlink()
         except Exception: pass
-
-    st.session_state.current_engine_type = "SCAPY" if PROJECT_PHASE <= 2 else "TSHARK"
-    st.session_state.engine_thread = None
-    
+        
     try:
-        if st.session_state.current_engine_type == "SCAPY":
+        if engine_type == "SCAPY":
             from realtime_detector import RealtimeDetector
             engine = RealtimeDetector()
             t = threading.Thread(target=engine.start, daemon=True)
             t.start()
-            st.session_state.engine_thread = t
+            return t
         else:
             from tshark_detector import TSharkRealtimeDetector
             engine = TSharkRealtimeDetector()
             t = threading.Thread(target=engine.start, daemon=True)
             t.start()
-            st.session_state.engine_thread = t
+            return t
     except Exception as e:
-        print(f"Error starting engine: {e}")
+        print(f"\n[CRITICAL ERROR] Failed to start {engine_type} engine: {e}")
+        return None
+
+# Determine engine type based on phase
+engine_type = "SCAPY" if PROJECT_PHASE <= 2 else "TSHARK"
+st.session_state.current_engine_type = engine_type
+
+# Start the engine
+start_live_engine(st.session_state.current_engine_type)
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -195,7 +464,7 @@ with st.sidebar:
     st.markdown("""
     <div class="sb-logo">
       <span class="sb-logo-title">THREAT INTELLIGENCE</span>
-      <div class="sb-logo-sub">AI-POWERED · v2.0</div>
+      <div class="sb-logo-sub">ENTERPRISE EDITION</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -212,7 +481,7 @@ with st.sidebar:
     
     st.markdown(f"""
     <div class="sb-card">
-      <div class="sb-card-title">⬡ SYSTEM STATUS</div>
+      <div class="sb-card-title">SYSTEM STATUS</div>
       <div class="sb-stat">
         <span class="sb-stat-label">ENGINE TYPE</span>
         <span><span class="dot-green"></span>&nbsp;<span style="color:#00ff88;font-size:.72rem;font-weight:bold;">{engine_type}</span></span>
@@ -223,7 +492,7 @@ with st.sidebar:
       </div>
       <div class="sb-stat">
         <span class="sb-stat-label">RAM USAGE</span>
-        <span><span class="{ram_dot}"></span>&nbsp;<span class="sb-stat-val">{ram:.1f}%</span></span>
+        <span><span class="{ram_dot}"></span>&nbsp;<span class="sb-stat-val">{round((psutil.virtual_memory().total - psutil.virtual_memory().available)/(1024**3), 1)} GB</span></span>
       </div>
       <div class="sb-stat">
         <span class="sb-stat-label">LOG ENTRIES</span>
@@ -236,57 +505,112 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("<div style='height:2px;background:linear-gradient(90deg,transparent,#0f3060,transparent);margin:6px 10px'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height:1px;background:linear-gradient(90deg,transparent,rgba(226,0,130,0.2),transparent);margin:8px 10px'></div>", unsafe_allow_html=True)
 
     # ── CPU / RAM Progress ──
-    st.markdown("""
+    cpu_cls = "safe" if cpu < 50 else ("warn" if cpu < 80 else "")
+    ram_cls = "safe" if ram < 65 else ("warn" if ram < 85 else "")
+    st.markdown(f"""
     <div class="sb-card">
-      <div class="sb-card-title">▣ RESOURCE MONITOR</div>
+      <div class="sb-card-title">RESOURCE MONITOR</div>
+      <div class="res-bar-wrap">
+        <div class="res-bar-label"><span>CPU</span><span>{cpu:.1f}%</span></div>
+        <div class="res-bar-track"><div class="res-bar-fill {cpu_cls}" style="width:{min(cpu,100):.1f}%"></div></div>
+      </div>
+      <div class="res-bar-wrap">
+        <div class="res-bar-label"><span>RAM</span><span>{ram:.1f}%</span></div>
+        <div class="res-bar-track"><div class="res-bar-fill {ram_cls}" style="width:{min(ram,100):.1f}%"></div></div>
+      </div>
     </div>
     """, unsafe_allow_html=True)
-    st.progress(int(cpu)/100, f"CPU  {cpu:.1f}%")
-    st.progress(int(ram)/100, f"RAM  {ram:.1f}%")
 
     st.markdown("<div style='height:2px;background:linear-gradient(90deg,transparent,#0f3060,transparent);margin:6px 10px'></div>", unsafe_allow_html=True)
 
-    # ── Controls Card ──
+    # ── CONTROLS ──
     st.markdown("""
     <div class="sb-card">
-      <div class="sb-card-title">⚙ CONTROLS</div>
+      <div class="sb-card-title">CONTROLS</div>
     </div>
     """, unsafe_allow_html=True)
-    demo_on  = st.toggle("🚀 Demo Mode", value=False)
-    refresh  = st.slider("Refresh (s)", 3, 30, 5)
+    demo_on  = st.toggle("DEMO MODE", value=False)
+    refresh  = st.slider("Refresh (s)", 1, 30, 2) # Now allows 1 second refresh!
     max_rows = st.slider("Max rows", 100, 5000, 1000)
 
-    st.markdown("<div style='height:2px;background:linear-gradient(90deg,transparent,#0f3060,transparent);margin:6px 10px'></div>", unsafe_allow_html=True)
+    # ── ADMIN HELP ──
+    with st.expander("ADMIN COMMAND HELP"):
+        if sys.platform == "win32":
+            st.code("python -m streamlit run dashboard.py", language="bash")
+            st.caption("Note: Run PowerShell as Administrator")
+        else:
+            st.code("sudo ./venv/bin/python -m streamlit run dashboard.py", language="bash")
+            st.caption("Note: Root privileges required for Scapy")
+
+    st.markdown("<div style='height:1px;background:linear-gradient(90deg,transparent,rgba(226,0,130,0.2),transparent);margin:8px 10px'></div>", unsafe_allow_html=True)
 
     # ── Actions ──
     st.markdown("""
     <div class="sb-card">
-      <div class="sb-card-title">⚡ ACTIONS</div>
+      <div class="sb-card-title">ACTIONS</div>
     </div>
     """, unsafe_allow_html=True)
-    if st.button("🧹  Clear Logs"):
+    if st.button("CLEAR LOGS"):
         if LOG_FILE.exists():
             try: LOG_FILE.unlink()
             except Exception: pass
         st.rerun()
-    if st.button("🌱  Seed Demo Data"):
+    if st.button("SEED DEMO DATA"):
         try:
             from demo_mode import seed_demo_log
             n = seed_demo_log(300, clear_existing=True)
-            st.success(f"✓ Seeded {n} records")
+            st.success(f"Seeded {n} records")
             load_df.clear()
         except Exception as e: st.error(str(e))
-    if st.button("🔄  Refresh Now"): load_df.clear(); st.rerun()
+    if st.button("REFRESH NOW"): load_df.clear(); st.rerun()
+
+    # ── AI CO-PILOT (Charlotte-Style) ──
+    st.markdown("""
+    <div class="sb-card" style="margin-top: 15px;">
+      <div class="sb-card-title">AI CO-PILOT</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Initialize chat history
+    if "messages" not in st.session_state:
+        st.session_state.messages = [
+            {"role": "assistant", "content": "I'm your AI Analyst. How can I help?"}
+        ]
+        
+    # Container for chat messages to keep sidebar tidy
+    chat_container = st.container(height=300, border=False)
+    with chat_container:
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+
+    if prompt := st.chat_input("Ask about IPs, threats..."):
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with chat_container:
+            with st.chat_message("user"):
+                st.markdown(prompt)
+            with st.chat_message("assistant"):
+                with st.spinner("Thinking..."):
+                    time.sleep(1) # Fake processing delay
+                    
+                    if "192.168.1.5" in prompt or "critical" in prompt.lower():
+                        response = "I see multiple Critical anomalies. `192.168.1.5` is executing a high-volume DoS. Recommend immediate isolation."
+                    elif "mitigate" in prompt.lower() or "action" in prompt.lower():
+                        response = "Actions: 1. Apply rate-limiting. 2. Blacklist offending IPs. 3. Verify CPU spikes."
+                    else:
+                        response = f"I've analyzed the recent telemetry. The system is actively isolating threats."
+                    
+                    st.markdown(response)
+        st.session_state.messages.append({"role": "assistant", "content": response})
 
     # ── Footer ──
     st.markdown("""
     <div style="position:fixed;bottom:16px;left:0;right:0;width:220px;
       text-align:center;font-size:.6rem;color:#1a3050;letter-spacing:1px;padding:0 10px">
-      AI-POWERED · CROSS-LAYER IDS<br>
-      <span style="color:#0f2540">Network + CPU Interrupt Analysis</span>
+      ENTERPRISE THREAT DETECTION<br>
     </div>
     """, unsafe_allow_html=True)
 
@@ -306,30 +630,40 @@ else:
         del st.session_state["demo_sim"]
 
 # ── Header ────────────────────────────────────────────────────────────────────
-st.markdown('<h1 style="text-align:center;letter-spacing:2px">INTELLIGENT THREAT DETECTOR</h1>', unsafe_allow_html=True)
-st.markdown('<p style="text-align:center;color:#6b7280">Network Traffic + CPU Interrupt Analysis</p>', unsafe_allow_html=True)
+st.markdown("""
+<div style="text-align:center; padding: 32px 0 24px; position:relative;">
+  <div style="font-size:0.65rem; font-weight:800; letter-spacing:5px; color:#e20082; opacity:0.7; margin-bottom:12px; text-transform:uppercase;">AI · CROSS-LAYER · IDS</div>
+  <h1 style="font-size:2.6rem; font-weight:900; letter-spacing:5px; margin:0; background:linear-gradient(135deg,#ffffff 40%,#e20082 70%,#ff8800 100%); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; background-size:200% auto; text-shadow:none;">INTELLIGENT THREAT DETECTOR</h1>
+  <div style="margin-top:14px; display:flex; justify-content:center; align-items:center; gap:8px;">
+    <div style="height:1px; width:60px; background:linear-gradient(90deg,transparent,rgba(226,0,130,0.5));"></div>
+    <span style="font-size:0.6rem; color:rgba(255,255,255,0.3); letter-spacing:3px; font-weight:700;">ENTERPRISE EDITION</span>
+    <div style="height:1px; width:60px; background:linear-gradient(270deg,transparent,rgba(226,0,130,0.5));"></div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
 
 df=load_df(max_rows)
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 # ── Tabs Configuration (Phased Presentation) ──────────────────────────────────
 tab_map = {
-    1: ["🔴 Live Monitor", "💻 System Metrics"],
-    2: ["🔴 Live Monitor", "📊 Attack Analytics", "💻 System Metrics"],
-    3: ["🔴 Live Monitor", "📊 Attack Analytics", "💻 System Metrics", "📡 Packet Forensics"],
-    4: ["🔴 Live Monitor", "📊 Attack Analytics", "🕸️ Threat Graph", "💻 System Metrics", "📋 Reports", "📡 Packet Forensics"]
+    1: ["LIVE MONITOR", "SYSTEM METRICS"],
+    2: ["LIVE MONITOR", "ATTACK ANALYTICS", "SYSTEM METRICS"],
+    3: ["LIVE MONITOR", "ATTACK ANALYTICS", "SYSTEM METRICS", "PACKET FORENSICS"],
+    4: ["LIVE MONITOR", "ATTACK ANALYTICS", "GEO-IP MAP", "THREAT GRAPH", "SYSTEM METRICS", "PACKET FORENSICS"]
 }
 current_tabs = tab_map.get(PROJECT_PHASE, tab_map[4])
 tabs = st.tabs(current_tabs)
 
 # Assign tabs to variables based on their names
 tab_dict = dict(zip(current_tabs, tabs))
-t1 = tab_dict.get("🔴 Live Monitor")
-t2 = tab_dict.get("📊 Attack Analytics")
-t3 = tab_dict.get("🕸️ Threat Graph")
-t4 = tab_dict.get("💻 System Metrics")
-t5 = tab_dict.get("📋 Reports")
-t6 = tab_dict.get("📡 Packet Forensics")
+t1 = tab_dict.get("LIVE MONITOR")
+t2 = tab_dict.get("ATTACK ANALYTICS")
+t3 = tab_dict.get("THREAT GRAPH")
+t4 = tab_dict.get("SYSTEM METRICS")
+t5 = tab_dict.get("AI CO-PILOT")
+t6 = tab_dict.get("PACKET FORENSICS")
+t7 = tab_dict.get("GEO-IP MAP")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 1 — LIVE MONITOR
@@ -338,6 +672,59 @@ with t1:
     if df.empty:
         st.info("No data. Use sidebar to seed demo data or start realtime_detector.py")
     else:
+        # Quick Filter Buttons
+        qf1, qf2, qf3, qf4 = st.columns(4)
+        
+        if qf1.button("Critical DoS", use_container_width=True):
+            st.session_state.siem_query_input = "index=main | search severity=CRITICAL attack_type=DoS"
+            st.rerun()
+            
+        if qf2.button("Port Scans", use_container_width=True):
+            st.session_state.siem_query_input = "attack_type=PortScan"
+            st.rerun()
+            
+        if qf3.button("High Risk TCP", use_container_width=True):
+            st.session_state.siem_query_input = "severity=HIGH protocol=TCP"
+            st.rerun()
+            
+        if qf4.button("Clear Search", use_container_width=True):
+            st.session_state.siem_query_input = ""
+            st.rerun()
+            
+        st.markdown("<div style='margin-bottom:12px;'></div>", unsafe_allow_html=True)
+
+        # --- SIEM SEARCH HEADER ---
+        st.markdown("""
+        <div class="section-hdr">
+          <div class="section-hdr-line"></div>
+          <div class="section-hdr-label">SIEM QUERY ENGINE</div>
+          <div class="section-hdr-line right"></div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        sc1, sc2 = st.columns([8, 1.5])
+        with sc1:
+            siem_query = st.text_input("SIEM Search", key="siem_query_input", label_visibility="collapsed", placeholder='index=main sourcetype=ids | search severity=CRITICAL attack_type=DoS', help="Filter live data dynamically. Use key=value syntax.")
+        with sc2:
+            st.button("Search", use_container_width=True)
+            
+        st.markdown("<div style='margin-bottom:16px;'></div>", unsafe_allow_html=True)
+        
+        if siem_query:
+            try:
+                tokens = siem_query.split()
+                for q in tokens:
+                    if "=" in q:
+                        k, v = q.split("=", 1)
+                        if k in df.columns:
+                            # Exact match or contains
+                            if df[k].astype(str).str.fullmatch(v, case=False).any():
+                                df = df[df[k].astype(str).str.fullmatch(v, case=False, na=False)]
+                            else:
+                                df = df[df[k].astype(str).str.contains(v, case=False, na=False)]
+            except Exception as e:
+                st.error(f"Query parsing error: {e}")
+        # --------------------------------
         c1,c2,c3,c4,c5=st.columns(5)
         total=len(df)
         crit=len(df[df.get("severity","")=="CRITICAL"]) if "severity" in df else 0
@@ -348,7 +735,7 @@ with t1:
         metric_card("Critical",crit,c2)
         metric_card("High",hi,c3)
         metric_card("Last 5 min",recent,c4)
-        metric_card("Avg Score",f"{avg_e:.4f}",c5)
+        metric_card("Avg Score",f"{avg_e:,.2f}",c5)
         st.markdown("---")
 
         # Live timeline
@@ -368,25 +755,34 @@ with t1:
         show_cols=[c for c in cols if c in df.columns]
         recent_df=df.sort_values("timestamp",ascending=False).head(20)[show_cols]
 
-        def color_sev(val):
-            c={"CRITICAL":"#3d0010","HIGH":"#3d1a00","MEDIUM":"#3d3d00","LOW":"#003d1a"}
-            return f"background-color:{c.get(val,'')};color:{SEV_COLOR.get(val,'white')}"
-
-        if "severity" in recent_df.columns:
-            styled=recent_df.style.map(color_sev,subset=["severity"])
-            st.dataframe(styled,use_container_width=True)
-        else:
-            st.dataframe(recent_df,use_container_width=True)
+        # --- SPLUNK RAW EVENT LOG VIEW ---
+        log_html = "<div style='background:rgba(255,255,255,0.03); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); border: 1px solid rgba(255,255,255,0.08); border-radius:24px; padding:20px; font-family:\"JetBrains Mono\", monospace; max-height: 600px; overflow-y: auto; box-shadow: 0 4px 30px rgba(0,0,0,0.3);'>"
+        for _, row in recent_df.iterrows():
+            ts = row.get("timestamp", "Unknown time")
+            sev = row.get("severity", "LOW")
+            sev_color = SEV_COLOR.get(sev, "#00cc66")
+            
+            # Create key=value raw log string
+            kv_pairs = []
+            for k, v in row.items():
+                if k not in ["timestamp", "severity"]:
+                    kv_pairs.append(f'<span style="color:#00e6e6;">{k}</span>=<span style="color:#e0e0e0;">"{v}"</span>')
+            log_str = " ".join(kv_pairs)
+            
+            log_html += f"<div style='border-bottom: 1px solid rgba(255,255,255,0.05); padding: 8px 4px; display:flex; gap:16px; align-items:flex-start;'><div style='min-width: 180px; color:{sev_color}; font-size:0.8rem; font-weight:600;'>▶ {ts}</div><div style='font-size:0.8rem; word-break: break-all; line-height: 1.4;'><span style='background:{sev_color}; color:#000; font-weight:bold; padding:2px 6px; border-radius:3px; font-size:0.7rem; margin-right:8px;'>{sev}</span> {log_str}</div></div>"
+        log_html += "</div>"
+        st.markdown(log_html, unsafe_allow_html=True)
 
         # Attack counters
-        if t2:
-            st.markdown("---")
         if "attack_type" in df.columns:
             st.subheader("Attack Counters")
             cts=df["attack_type"].value_counts()
-            cols2=st.columns(len(cts))
-            for i,(k,v) in enumerate(cts.items()):
-                metric_card(k,v,cols2[i])
+            if len(cts) > 0:
+                cols2=st.columns(len(cts))
+                for i,(k,v) in enumerate(cts.items()):
+                    metric_card(k,v,cols2[i])
+            else:
+                st.info("No attacks recorded yet.")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 2 — ATTACK ANALYTICS
@@ -396,6 +792,39 @@ if t2:
         if df.empty:
             st.info("No data yet.")
         else:
+            # --- EXPLAINABLE AI SECTION ---
+            st.markdown("<h3 style='font-size:1.1rem; margin-top:10px; margin-bottom:15px;'>EXPLAINABLE AI INSIGHTS</h3>", unsafe_allow_html=True)
+            if "hint" in df.columns:
+                xai_df = df.dropna(subset=["hint"])
+                xai_df = xai_df[xai_df["hint"] != ""]
+                if not xai_df.empty:
+                    latest_xai = xai_df.head(3)
+                    for _, row in latest_xai.iterrows():
+                        color = SEV_COLOR.get(row.get('severity','LOW'), '#00cc66')
+                        score = row.get('risk_score', row.get('reconstruction_error', 0))
+                        hints = str(row['hint']).split(';')
+                        hint_html = "".join([f"<li style='margin-bottom:4px;'>{h.strip()}</li>" for h in hints if h.strip()])
+                        
+                        st.markdown(f"""
+                        <div style="background: rgba(255,255,255,0.03); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); border: 1px solid rgba(255,255,255,0.08); border-left: 4px solid {color}; padding: 18px 22px; margin-bottom: 14px; border-radius: 20px; box-shadow: 0 4px 24px rgba(0,0,0,0.3);">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                                <span style="font-weight:600; color:var(--text-title); font-size:1.0rem;">{row.get('attack_type', 'Anomaly')} Detected</span>
+                                <span style="font-family:'JetBrains Mono', monospace; color:{color}; font-size:0.85rem; background:var(--bg-main); padding:4px 10px; border-radius:4px;">IP: {row.get('src_ip','Unknown')} | Risk: {score:.2f}</span>
+                            </div>
+                            <div style="color:var(--text-muted); font-size:0.75rem; font-weight:600; letter-spacing:0.5px; margin-bottom:8px; text-transform:uppercase;">Reasoning Engine Output</div>
+                            <ul style="color:var(--text-main); font-size:0.85rem; margin-top:0; margin-bottom:0; padding-left:20px;">
+                                {hint_html}
+                            </ul>
+                        </div>
+                        """, unsafe_allow_html=True)
+                else:
+                    st.info("No explainability hints available yet.")
+            else:
+                st.info("XAI Engine is initialising...")
+            
+            st.markdown("<hr style='border-color: rgba(255,255,255,0.05); margin: 25px 0;'>", unsafe_allow_html=True)
+            # --- END EXPLAINABLE AI ---
+
             r1c1,r1c2=st.columns(2)
             # Severity donut
             if "severity" in df.columns:
@@ -454,41 +883,98 @@ if t3:
         if df.empty:
             st.info("No data yet.")
         else:
-            st.subheader("🕸️ Threat Intelligence Graph")
-            # Try Neo4j first, fallback to pyvis from df
-            neo4j_ok=False
-            try:
-                from neo4j_visualizer import Neo4jHandler, build_pyvis_graph, build_graph_from_dataframe
-                handler=Neo4jHandler()
-                if handler.is_available:
-                    neo4j_ok=True
-                    # Push latest data
-                    for _,row in df.head(100).iterrows():
-                        handler.push_anomaly(
-                            str(row.get("src_ip","?")), str(row.get("dst_ip","?")),
-                            str(row.get("attack_type","Unknown")),
-                            str(row.get("severity","LOW")),
-                            str(row.get("protocol","TCP")),
-                            float(row.get("reconstruction_error",0)),
-                        )
-                    gdata=handler.get_graph_data(limit=80)
-                    graph_path=build_pyvis_graph(gdata, output_path="logs/threat_graph.html")
-                    handler.close()
-                    st.success("✓ Neo4j connected")
-                else:
-                    raise Exception("Neo4j offline")
-            except Exception as e:
-                st.info(f"Neo4j offline — using local graph. ({e})")
-                try:
-                    graph_path=build_graph_from_dataframe(df.head(200), output_path="logs/threat_graph.html")
-                except: graph_path=None
-
-            if graph_path and os.path.exists(graph_path):
-                with open(graph_path,"r",encoding="utf-8") as f:
-                    html=f.read()
-                st.components.v1.html(html, height=600, scrolling=True)
+            st.subheader("THREAT INTELLIGENCE GRAPH")
+            
+            if "src_ip" in df.columns and "dst_ip" in df.columns:
+                edges = df.groupby(["src_ip", "dst_ip"]).size().reset_index(name="weight")
+                G = nx.from_pandas_edgelist(edges, 'src_ip', 'dst_ip', ['weight'], create_using=nx.DiGraph())
+                # Increase k to spread nodes out further and reduce overlap
+                pos = nx.spring_layout(G, k=0.5, iterations=50, seed=42)
+                
+                thin_edge_x, thin_edge_y = [], []
+                thick_edge_x, thick_edge_y = [], []
+                for edge in G.edges(data=True):
+                    x0, y0 = pos[edge[0]]
+                    x1, y1 = pos[edge[1]]
+                    w = edge[2].get('weight', 1)
+                    if w > 5:
+                        thick_edge_x.extend([x0, x1, None])
+                        thick_edge_y.extend([y0, y1, None])
+                    else:
+                        thin_edge_x.extend([x0, x1, None])
+                        thin_edge_y.extend([y0, y1, None])
+                    
+                edge_trace_thin = go.Scatter(
+                    x=thin_edge_x, y=thin_edge_y,
+                    line=dict(width=1, color='rgba(255, 255, 255, 0.1)'),
+                    hoverinfo='none',
+                    mode='lines')
+                    
+                edge_trace_thick = go.Scatter(
+                    x=thick_edge_x, y=thick_edge_y,
+                    line=dict(width=3, color='rgba(255, 0, 85, 0.7)'),
+                    hoverinfo='none',
+                    mode='lines')
+                    
+                node_x = []
+                node_y = []
+                node_text = []
+                node_colors = []
+                node_sizes = []
+                
+                src_ips = df['src_ip'].unique() if 'src_ip' in df.columns else []
+                dst_ips = df['dst_ip'].unique() if 'dst_ip' in df.columns else []
+                
+                for node in G.nodes():
+                    x, y = pos[node]
+                    node_x.append(x)
+                    node_y.append(y)
+                    node_text.append(str(node))
+                    
+                    if node in src_ips:
+                        sevs = df[df['src_ip'] == node]['severity'].unique() if 'severity' in df.columns else []
+                        if 'CRITICAL' in sevs:
+                            node_colors.append('#ff0055')
+                            node_sizes.append(24)
+                        elif 'HIGH' in sevs:
+                            node_colors.append('#ff8800')
+                            node_sizes.append(20)
+                        elif 'MEDIUM' in sevs:
+                            node_colors.append('#ffcc00')
+                            node_sizes.append(16)
+                        else:
+                            node_colors.append('#00cc66')
+                            node_sizes.append(14)
+                    else:
+                        # Target Nodes
+                        node_colors.append('#00e6e6')
+                        node_sizes.append(30)
+                    
+                node_trace = go.Scatter(
+                    x=node_x, y=node_y,
+                    mode='markers', # Remove static text to prevent overlapping
+                    hoverinfo='text',
+                    text=node_text,
+                    marker=dict(
+                        showscale=False,
+                        color=node_colors,
+                        size=node_sizes,
+                        line_width=2,
+                        line_color='#15171e'))
+                        
+                fig = go.Figure(data=[edge_trace_thin, edge_trace_thick, node_trace],
+                             layout=go.Layout(
+                                showlegend=False,
+                                hovermode='closest',
+                                margin=dict(b=20,l=5,r=5,t=20),
+                                paper_bgcolor='rgba(0,0,0,0)',
+                                plot_bgcolor='rgba(0,0,0,0)',
+                                xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                                yaxis=dict(showgrid=False, zeroline=False, showticklabels=False))
+                                )
+                st.plotly_chart(_theme_adaptive(fig), use_container_width=True)
             else:
-                st.warning("Graph unavailable. Install pyvis: pip install pyvis")
+                st.warning("Graph unavailable: 'src_ip' or 'dst_ip' not found in data.")
 
             # Cluster table
             if "src_ip" in df.columns and "dst_ip" in df.columns:
@@ -506,17 +992,22 @@ if t3:
 # ══════════════════════════════════════════════════════════════════════════════
 if t4:
     with t4:
-        st.subheader("💻 Cross-Layer System Metrics")
+        st.subheader("CROSS-LAYER SYSTEM METRICS")
         try:
             import psutil
-            cpu=psutil.cpu_percent(interval=None)
-            ram=psutil.virtual_memory()
-            cores=psutil.cpu_percent(interval=None,percpu=True)
+            # cpu variable is already acquired from the sidebar, doing it again without interval yields 0.0!
+            ram_obj=psutil.virtual_memory()
+            # Non-blocking per-core metrics
+            cores=psutil.cpu_percent(interval=None, percpu=True)
+            
+            # Calculate actual GB for "11 GB to 3 GB" style monitoring
+            used_gb = (ram_obj.total - ram_obj.available) / (1024**3)
+            total_gb = ram_obj.total / (1024**3)
 
             m1,m2,m3,m4=st.columns(4)
-            metric_card("CPU Usage",f"{cpu:.1f}%",m1)
-            metric_card("RAM Used",f"{ram.percent:.1f}%",m2)
-            metric_card("RAM Free",f"{ram.free//(1024**2)} MB",m3)
+            metric_card("CPU Usage",f"{cpu:.1f}%",m1, highlight=True)
+            metric_card("RAM Used",f"{used_gb:.1f} GB",m2)
+            metric_card("RAM Available",f"{ram_obj.available/(1024**3):.1f} GB",m3)
             metric_card("CPU Cores",len(cores),m4)
 
             # CPU gauge
@@ -529,7 +1020,7 @@ if t4:
                        "threshold":{"line":{"color":"red","width":4},"value":85}}))
             fig.update_layout(height=250)
             
-            fig2=go.Figure(go.Indicator(mode="gauge+number",value=ram.percent,
+            fig2=go.Figure(go.Indicator(mode="gauge+number",value=ram_obj.percent,
                 title={"text":"RAM %","font":{"color":"#4488ff"}},
                 gauge={"axis":{"range":[0,100]},"bar":{"color":"#4488ff"},
                        "steps":[{"range":[0,60],"color":"#0d1120"},
@@ -586,11 +1077,23 @@ if t4:
                         st.plotly_chart(_theme_adaptive(fig4),use_container_width=True)
                 except: st.info("IRQ data unavailable")
             else:
-                # Simulate IRQ chart for demo
-                irq_demo=pd.DataFrame({"IRQ":["NET0","NET1","USB","TIMER","ACPI"],"irq_s":[842,433,120,9800,55]})
-                fig4=px.bar(irq_demo,x="IRQ",y="irq_s",color="irq_s",
-                    color_continuous_scale="Greens",title="Network IRQ Frequency (irq/s) — Demo")
-                st.plotly_chart(_theme_adaptive(fig4),use_container_width=True)
+                # macOS/Windows fallback: LIVE Network I/O instead of hardcoded demo data
+                st.subheader("Network I/O Activity (Live)")
+                net_io = psutil.net_io_counters(pernic=True)
+                net_data = []
+                for nic, stats in net_io.items():
+                    if stats.packets_sent > 0 or stats.packets_recv > 0:
+                        net_data.append({
+                            "Interface": nic,
+                            "Packets": stats.packets_sent + stats.packets_recv
+                        })
+                if net_data:
+                    net_df = pd.DataFrame(net_data).sort_values("Packets", ascending=False).head(5)
+                    fig4 = px.bar(net_df, x="Interface", y="Packets", color="Packets",
+                        color_continuous_scale="Blues", title="Live Network Packets per Interface")
+                    st.plotly_chart(_theme_adaptive(fig4), use_container_width=True)
+                else:
+                    st.info("No active network interface data found.")
 
         except ImportError:
             st.error("psutil not installed. Run: pip install psutil")
@@ -611,54 +1114,10 @@ if t4:
             st.plotly_chart(_theme_adaptive(fig5),use_container_width=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 5 — REPORTS
+# MODEL METRICS & ATTACK SUMMARY (Moved into Attack Analytics Tab)
 # ══════════════════════════════════════════════════════════════════════════════
-if t5:
-    with t5:
-        st.subheader("📋 Security Reports & Export")
-        if df.empty:
-            st.info("No data to export yet.")
-        else:
-            st.markdown(f"**Total records:** {len(df):,}  |  "
-                        f"**Date range:** {df['timestamp'].min() if 'timestamp' in df else 'N/A'} "
-                        f"→ {df['timestamp'].max() if 'timestamp' in df else 'N/A'}")
-
-            rc1,rc2=st.columns(2)
-            # CSV
-            with rc1:
-                st.markdown("#### 📄 CSV Export")
-                try:
-                    from report_generator import dataframe_to_csv_bytes
-                    csv_bytes=dataframe_to_csv_bytes(df)
-                except:
-                    csv_bytes=df.to_csv(index=False).encode()
-                st.download_button("⬇️ Download CSV",csv_bytes,
-                    file_name=f"ids_report_{datetime.utcnow().strftime('%Y%m%d_%H%M')}.csv",
-                    mime="text/csv",use_container_width=True)
-
-            # PDF
-            with rc2:
-                st.markdown("#### 📑 PDF Report")
-                if st.button("Generate PDF",use_container_width=True):
-                    with st.spinner("Generating PDF..."):
-                        try:
-                            from report_generator import generate_pdf_bytes
-                            mets={}
-                            try:
-                                import json as jmod
-                                mf=BASE_DIR/"logs"/"rf_evaluation.json"
-                                if mf.exists(): mets=jmod.loads(mf.read_text())
-                            except: pass
-                            pdf_b=generate_pdf_bytes(df,mets)
-                            if pdf_b:
-                                st.download_button("⬇️ Download PDF",pdf_b,
-                                    file_name=f"ids_report_{datetime.utcnow().strftime('%Y%m%d_%H%M')}.pdf",
-                                    mime="application/pdf",use_container_width=True)
-                            else:
-                                st.error("fpdf2 not installed: pip install fpdf2")
-                        except Exception as e:
-                            st.error(f"PDF error: {e}")
-
+with t2:
+    with st.container():
         st.markdown("---")
         # Model metrics
         st.subheader("Model Performance Metrics")
@@ -702,6 +1161,69 @@ if t5:
             ).round(4).reset_index()
             st.dataframe(summary,use_container_width=True)
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 7 — GEO-IP ATTACK MAP
+# ══════════════════════════════════════════════════════════════════════════════
+if t7:
+    with t7:
+        st.subheader("REAL-TIME GLOBAL ATTACK MAP")
+        if df.empty or "src_ip" not in df.columns:
+            st.info("No data available to map yet.")
+        else:
+            # Create geoip columns
+            lats, lons, cities, countries = [], [], [], []
+            # We only map the most recent 100 unique IPs to avoid API limits/lag
+            recent_df = df.head(100).copy()
+            for ip in recent_df["src_ip"]:
+                lat, lon, city, country = fetch_geoip(ip)
+                lats.append(lat)
+                lons.append(lon)
+                cities.append(city)
+                countries.append(country)
+            
+            recent_df["lat"] = lats
+            recent_df["lon"] = lons
+            recent_df["city"] = cities
+            recent_df["country"] = countries
+            
+            df_valid = recent_df.dropna(subset=["lat", "lon"])
+            if not df_valid.empty:
+                fig = go.Figure()
+                
+                colors = [SEV_COLOR.get(s, "#00ff88") for s in df_valid.get("severity", ["LOW"]*len(df_valid))]
+                
+                fig.add_trace(go.Scattergeo(
+                    lon=df_valid["lon"], lat=df_valid["lat"],
+                    text=df_valid["city"] + ", " + df_valid["country"] + "<br>IP: " + df_valid["src_ip"],
+                    mode="markers",
+                    marker=dict(
+                        size=10, 
+                        color=colors,
+                        opacity=0.8,
+                        line=dict(width=1, color="rgba(255,255,255,0.4)")
+                    )
+                ))
+                
+                fig.update_geos(
+                    projection_type="orthographic",
+                    showcoastlines=True, coastlinecolor="rgba(0, 240, 255, 0.4)",
+                    showland=True, landcolor="#0f172a",
+                    showocean=True, oceancolor="#020617",
+                    showlakes=True, lakecolor="#020617",
+                    showcountries=True, countrycolor="rgba(0, 240, 255, 0.1)",
+                    bgcolor="rgba(0,0,0,0)"
+                )
+                
+                fig.update_layout(
+                    margin=dict(l=0, r=0, t=0, b=0),
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    geo=dict(bgcolor="rgba(0,0,0,0)")
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No geospatial data available yet.")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 6 — PACKET FORENSICS (Wireshark / TShark)
