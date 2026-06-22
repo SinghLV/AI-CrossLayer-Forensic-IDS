@@ -2,15 +2,15 @@
 
 A professional-grade, enterprise-ready research platform for **Zero-Day Network Intrusion Detection**. This system implements a multi-layer defense strategy by correlating **Network Traffic Analysis** with **System-Level Telemetry** to identify sophisticated threats that traditional IDSs miss. 
 
-It features a cutting-edge **Enterprise SOC Dashboard** built with Streamlit, providing real-time Threat Intelligence and Explainable AI insights.
+It features a cutting-edge **Glassmorphic Enterprise SOC Dashboard** built with Streamlit, providing real-time Threat Intelligence and Explainable AI insights.
 
 ---
 
 ## 🚀 System Highlights
 
-### 1. Enterprise SOC Dashboard
+### 1. Enterprise SOC Dashboard (Glassmorphism UI)
 The entire user interface is designed to mimic a high-end Security Operations Center (SOC). It features:
-*   **Advanced Threat Visualization**: Dynamic telemetry updates and responsive metrics.
+*   **Dynamic Glassmorphism**: Frosted glass panels, dynamic glowing borders, and neon telemetry updates.
 *   **Live Threat Intelligence Engine**: A SIEM-style query bar to search and filter live packet anomalies in real-time.
 *   **AI Co-Pilot**: An integrated chat interface to ask questions about current network threats and receive automated mitigation strategies.
 
@@ -36,7 +36,7 @@ Every detection is accompanied by a human-readable insight. The XAI engine trans
 
 Here is a breakdown of where everything exists in the repository:
 
-*   **`dashboard.py`**: The main entry point for the frontend. Contains the entire Streamlit SOC interface, including the SIEM query engine and interactive Plotly graphs.
+*   **`dashboard.py`**: The main entry point for the frontend. Contains the entire Streamlit SOC interface, including the custom CSS glassmorphism, SIEM query engine, and interactive Plotly graphs.
 *   **`realtime_detector.py`**: The background packet sniffing engine using Scapy. Captures live traffic and pushes it to the AI for inference.
 *   **`tshark_detector.py`**: An advanced alternative to `realtime_detector.py` that utilizes Wireshark's TShark engine for deep packet inspection.
 *   **`hybrid_detector.py`**: The core AI logic. Loads the pre-trained machine learning models (LSTM, Random Forest) and executes the inference pipeline on incoming packets.
