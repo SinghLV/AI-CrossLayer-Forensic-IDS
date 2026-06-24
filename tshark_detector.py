@@ -118,6 +118,10 @@ class TSharkRealtimeDetector:
                 if not line:
                     continue
                 try:
+                    # Drop packets if the queue is backing up to prevent memory leak!
+                    if self._executor._work_queue.qsize() > 500:
+                        continue
+                        
                     data = json.loads(line)
                     if "layers" in data:
                         self._executor.submit(self._process_packet, data)

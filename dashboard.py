@@ -309,11 +309,24 @@ h3 { opacity:0.85; }
 
 /* ─── EXPANDERS ─── */
 .streamlit-expanderHeader {
+  background: rgba(255,255,255,0.025) !important;
+  border-radius: 12px !important;
+}
 
 /* ─── HR DIVIDERS ─── */
 hr {
   border-color: rgba(255,255,255,0.04) !important;
   margin: 20px 0 !important;
+}
+
+/* ─── RESPONSIVE: prevent overflow on smaller windows ─── */
+html, body { overflow-x: hidden !important; }
+[data-testid="stMain"], [data-testid="stMainBlockContainer"] {
+  max-width: calc(100vw - 260px) !important;
+  overflow-x: hidden !important;
+}
+[data-testid="stMainMenu"], [data-testid="stAppDeployButton"] {
+  display: none !important;
 }
 
 </style>""", unsafe_allow_html=True)
@@ -463,8 +476,7 @@ with st.sidebar:
     # ── Logo Banner ──
     st.markdown("""
     <div class="sb-logo">
-      <span class="sb-logo-title">THREAT INTELLIGENCE</span>
-      <div class="sb-logo-sub">ENTERPRISE EDITION</div>
+      <span class="sb-logo-title">THREAT<br>INTELLIGENCE</span>
     </div>
     """, unsafe_allow_html=True)
 
@@ -607,12 +619,7 @@ with st.sidebar:
         st.session_state.messages.append({"role": "assistant", "content": response})
 
     # ── Footer ──
-    st.markdown("""
-    <div style="position:fixed;bottom:16px;left:0;right:0;width:220px;
-      text-align:center;font-size:.6rem;color:#1a3050;letter-spacing:1px;padding:0 10px">
-      ENTERPRISE THREAT DETECTION<br>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown("""<br>""", unsafe_allow_html=True)
 
 # ── Start demo simulator ───────────────────────────────────────────────────────
 if demo_on:
@@ -632,13 +639,7 @@ else:
 # ── Header ────────────────────────────────────────────────────────────────────
 st.markdown("""
 <div style="text-align:center; padding: 32px 0 24px; position:relative;">
-  <div style="font-size:0.65rem; font-weight:800; letter-spacing:5px; color:#e20082; opacity:0.7; margin-bottom:12px; text-transform:uppercase;">AI · CROSS-LAYER · IDS</div>
   <h1 style="font-size:2.6rem; font-weight:900; letter-spacing:5px; margin:0; background:linear-gradient(135deg,#ffffff 40%,#e20082 70%,#ff8800 100%); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; background-size:200% auto; text-shadow:none;">INTELLIGENT THREAT DETECTOR</h1>
-  <div style="margin-top:14px; display:flex; justify-content:center; align-items:center; gap:8px;">
-    <div style="height:1px; width:60px; background:linear-gradient(90deg,transparent,rgba(226,0,130,0.5));"></div>
-    <span style="font-size:0.6rem; color:rgba(255,255,255,0.3); letter-spacing:3px; font-weight:700;">ENTERPRISE EDITION</span>
-    <div style="height:1px; width:60px; background:linear-gradient(270deg,transparent,rgba(226,0,130,0.5));"></div>
-  </div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -738,12 +739,19 @@ with t1:
         metric_card("Avg Score",f"{avg_e:,.2f}",c5)
         st.markdown("---")
 
-        # Live timeline
+        # Live timeline — always show attacks even if buried by Normal entries
         if "timestamp" in df.columns and "reconstruction_error" in df.columns:
-            fig=px.scatter(df.tail(300),x="timestamp",y="reconstruction_error",
-                color="severity" if "severity" in df else None,
+            # Always include ALL critical/high rows + sample of normal
+            if "severity" in df.columns:
+                atk_df    = df[df["severity"].isin(["CRITICAL","HIGH","MEDIUM"])]
+                normal_df = df[df["severity"]=="LOW"].sort_values("timestamp").tail(200)
+                plot_df   = pd.concat([normal_df, atk_df]).sort_values("timestamp")
+            else:
+                plot_df = df.sort_values("timestamp").tail(300)
+            fig=px.scatter(plot_df,x="timestamp",y="reconstruction_error",
+                color="severity" if "severity" in df.columns else None,
                 color_discrete_map=SEV_COLOR,
-                hover_data=["src_ip","dst_ip","attack_type"] if "src_ip" in df else None,
+                hover_data=["src_ip","dst_ip","attack_type"] if "src_ip" in df.columns else None,
                 title="Anomaly Score Timeline")
             st.plotly_chart(_theme_adaptive(fig),use_container_width=True)
 
@@ -753,7 +761,13 @@ with t1:
         if PROJECT_PHASE < 4 and "hint" in cols:
             cols.remove("hint")
         show_cols=[c for c in cols if c in df.columns]
-        recent_df=df.sort_values("timestamp",ascending=False).head(20)[show_cols]
+        # Show attacks first, then most-recent Normal — never bury attacks under Normal
+        if "severity" in df.columns:
+            atk_rows    = df[df["severity"].isin(["CRITICAL","HIGH","MEDIUM"])].sort_values("timestamp",ascending=False).head(10)
+            normal_rows = df[df["severity"]=="LOW"].sort_values("timestamp",ascending=False).head(10)
+            recent_df   = pd.concat([atk_rows, normal_rows])[show_cols]
+        else:
+            recent_df = df.sort_values("timestamp",ascending=False).head(20)[show_cols]
 
         # --- SPLUNK RAW EVENT LOG VIEW ---
         log_html = "<div style='background:rgba(255,255,255,0.03); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); border: 1px solid rgba(255,255,255,0.08); border-radius:24px; padding:20px; font-family:\"JetBrains Mono\", monospace; max-height: 600px; overflow-y: auto; box-shadow: 0 4px 30px rgba(0,0,0,0.3);'>"
@@ -798,7 +812,14 @@ if t2:
                 xai_df = df.dropna(subset=["hint"])
                 xai_df = xai_df[xai_df["hint"] != ""]
                 if not xai_df.empty:
-                    latest_xai = xai_df.head(3)
+                    # Prioritize attacks over Normal traffic, and deduplicate so we don't see the same attack 3 times
+                    if "severity" in xai_df.columns:
+                        xai_atk = xai_df[xai_df["severity"].isin(["CRITICAL","HIGH","MEDIUM"])].sort_values("timestamp", ascending=False).drop_duplicates(subset=["attack_type", "src_ip"])
+                        xai_norm = xai_df[xai_df["severity"] == "LOW"].sort_values("timestamp", ascending=False).drop_duplicates(subset=["hint"])
+                        latest_xai = pd.concat([xai_atk, xai_norm]).head(3)
+                    else:
+                        latest_xai = xai_df.sort_values("timestamp", ascending=False).drop_duplicates(subset=["hint"]).head(3)
+                        
                     for _, row in latest_xai.iterrows():
                         color = SEV_COLOR.get(row.get('severity','LOW'), '#00cc66')
                         score = row.get('risk_score', row.get('reconstruction_error', 0))
@@ -874,6 +895,49 @@ if t2:
                 fig=px.imshow(heat,color_continuous_scale="Reds",
                     labels=dict(x="Attack Type",y="Hour",color="Count"),title="")
                 st.plotly_chart(_theme_adaptive(fig),use_container_width=True)
+
+            st.markdown("---")
+            # Model metrics
+            st.subheader("Model Performance Metrics")
+            mc1,mc2=st.columns(2)
+            rf_mets_path=BASE_DIR/"logs"/"rf_evaluation.json"
+            lstm_mets_path=BASE_DIR/"logs"/"training_metrics.json"
+            if rf_mets_path.exists():
+                rf_m=json.loads(rf_mets_path.read_text())
+                mc1.markdown("**Random Forest**")
+                for k in ["accuracy","precision","recall","f1_score","roc_auc"]:
+                    if k in rf_m: mc1.metric(k.replace("_"," ").title(), f"{rf_m[k]:.4f}")
+            else:
+                mc1.info("Run train_rf.py to see RF metrics")
+
+            if lstm_mets_path.exists():
+                lstm_m=json.loads(lstm_mets_path.read_text())
+                mc2.markdown("**LSTM Autoencoder**")
+                mc2.metric("Best Val Loss",f"{lstm_m.get('best_val_loss',0):.6f}")
+                mc2.metric("Threshold",f"{lstm_m.get('threshold',0):.6f}")
+                # Loss curve
+                if "train_loss" in lstm_m and "val_loss" in lstm_m:
+                    epochs=list(range(1,len(lstm_m["train_loss"])+1))
+                    fig6=go.Figure()
+                    fig6.add_trace(go.Scatter(x=epochs,y=lstm_m["train_loss"],
+                        name="Train Loss",line=dict(color="#00ff88")))
+                    fig6.add_trace(go.Scatter(x=epochs,y=lstm_m["val_loss"],
+                        name="Val Loss",line=dict(color="#4488ff",dash="dash")))
+                    fig6.update_layout(title="LSTM Training Curves",
+                        xaxis_title="Epoch",yaxis_title="Loss")
+                    mc2.plotly_chart(_theme_adaptive(fig6),use_container_width=True)
+            else:
+                mc2.info("Run train_lstm.py to see LSTM metrics")
+
+            # Attack summary table
+            st.subheader("Attack Summary")
+            if "attack_type" in df.columns:
+                summary=df.groupby("attack_type").agg(
+                    count=("attack_type","count"),
+                    avg_score=("reconstruction_error","mean"),
+                    max_score=("reconstruction_error","max"),
+                ).round(4).reset_index()
+                st.dataframe(summary,use_container_width=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 3 — THREAT GRAPH
@@ -1113,56 +1177,7 @@ if t4:
                 yaxis2=dict(title="CPU%",overlaying="y",side="right",color="#4488ff"))
             st.plotly_chart(_theme_adaptive(fig5),use_container_width=True)
 
-# ══════════════════════════════════════════════════════════════════════════════
-# MODEL METRICS & ATTACK SUMMARY (Moved into Attack Analytics Tab)
-# ══════════════════════════════════════════════════════════════════════════════
-with t2:
-    with st.container():
-        st.markdown("---")
-        # Model metrics
-        st.subheader("Model Performance Metrics")
-        mc1,mc2=st.columns(2)
-        rf_mets_path=BASE_DIR/"logs"/"rf_evaluation.json"
-        lstm_mets_path=BASE_DIR/"logs"/"training_metrics.json"
-        if rf_mets_path.exists():
-            rf_m=json.loads(rf_mets_path.read_text())
-            mc1.markdown("**Random Forest**")
-            for k in ["accuracy","precision","recall","f1_score","roc_auc"]:
-                if k in rf_m: mc1.metric(k.replace("_"," ").title(), f"{rf_m[k]:.4f}")
-        else:
-            mc1.info("Run train_rf.py to see RF metrics")
-
-        if lstm_mets_path.exists():
-            lstm_m=json.loads(lstm_mets_path.read_text())
-            mc2.markdown("**LSTM Autoencoder**")
-            mc2.metric("Best Val Loss",f"{lstm_m.get('best_val_loss',0):.6f}")
-            mc2.metric("Threshold",f"{lstm_m.get('threshold',0):.6f}")
-            # Loss curve
-            if "train_loss" in lstm_m and "val_loss" in lstm_m:
-                epochs=list(range(1,len(lstm_m["train_loss"])+1))
-                fig6=go.Figure()
-                fig6.add_trace(go.Scatter(x=epochs,y=lstm_m["train_loss"],
-                    name="Train Loss",line=dict(color="#00ff88")))
-                fig6.add_trace(go.Scatter(x=epochs,y=lstm_m["val_loss"],
-                    name="Val Loss",line=dict(color="#4488ff",dash="dash")))
-                fig6.update_layout(title="LSTM Training Curves",
-                    xaxis_title="Epoch",yaxis_title="Loss")
-                mc2.plotly_chart(_theme_adaptive(fig6),use_container_width=True)
-        else:
-            mc2.info("Run train_lstm.py to see LSTM metrics")
-
-        # Attack summary table
-        st.subheader("Attack Summary")
-        if "attack_type" in df.columns:
-            summary=df.groupby("attack_type").agg(
-                count=("attack_type","count"),
-                avg_score=("reconstruction_error","mean"),
-                max_score=("reconstruction_error","max"),
-            ).round(4).reset_index()
-            st.dataframe(summary,use_container_width=True)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════# ══════════════════════════════════════════════════════════════════════════════
 # TAB 7 — GEO-IP ATTACK MAP
 # ══════════════════════════════════════════════════════════════════════════════
 if t7:
